@@ -236,17 +236,57 @@ class BaseResearchAgent(ABC):
         query: ResearchQuery, 
         context: str
     ) -> str:
-        """Build enhanced input with RAG context."""
-        input_parts = [f"Research Query: {query.query}"]
+        """Build enhanced input with RAG context for rigorous academic research."""
+        input_parts = [
+            "=" * 60,
+            "RESEARCH INVESTIGATION REQUEST",
+            "=" * 60,
+            f"\n**Primary Research Question:**\n{query.query}\n"
+        ]
         
         if query.field:
-            input_parts.append(f"Focus Field: {query.field}")
+            input_parts.append(f"**Focus Domain:** {query.field}\n")
         
         if context:
-            input_parts.append(f"\nRelevant Context from Previous Research:\n{context}")
+            input_parts.append(f"**Relevant Prior Research Context:**\n{context}\n")
         
-        input_parts.append("\nPlease research this topic thoroughly using the available tools.")
-        input_parts.append("Prioritize peer-reviewed sources and cite your findings.")
+        input_parts.append("""
+**INVESTIGATION PROTOCOL:**
+
+1. **Literature Search Phase**
+   - Search multiple databases (arXiv, PubMed, Semantic Scholar) for relevant papers
+   - Prioritize recent publications (last 5 years) but include seminal works
+   - Search for both broad reviews and specific empirical studies
+
+2. **Analysis Requirements**
+   - For each relevant paper found, note: Authors, Year, Key findings, Methodology
+   - Identify consensus views in the field
+   - Highlight ongoing debates or contradictions
+   - Note quantitative results (effect sizes, p-values, sample sizes when available)
+
+3. **Output Format Requirements**
+   Your response MUST include:
+   
+   a) **Executive Summary** (2-3 sentences of key findings)
+   
+   b) **Detailed Findings** organized by theme or methodology:
+      - Each finding must cite the specific paper/author
+      - Include direct quotes where particularly insightful
+      - Note the strength of evidence (meta-analysis > RCT > observational > theoretical)
+   
+   c) **Key Papers Table**:
+      | Authors (Year) | Title | Key Finding | Relevance |
+      
+   d) **Research Gaps**: What questions remain unanswered?
+   
+   e) **Critical Assessment**: What are the limitations of current research?
+
+4. **Citation Format**
+   Always cite as: Author et al. (Year) or (Author, Year)
+   Be specific - don't say "studies show" without citing which studies
+
+**BEGIN INVESTIGATION NOW. Search thoroughly and report comprehensively.**
+""")
         
         return "\n".join(input_parts)
     

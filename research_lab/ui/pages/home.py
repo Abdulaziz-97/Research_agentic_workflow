@@ -1,94 +1,156 @@
-"""Home page for Research Lab."""
+"""Home page for Research Lab - Professional Landing Experience."""
 
 import streamlit as st
-from ui.components import render_header, render_sidebar
+from ui.components import render_sidebar, render_hero_header, DOMAIN_ICONS
+from config.settings import FIELD_DISPLAY_NAMES, FIELD_DESCRIPTIONS, RESEARCH_FIELDS
 
 
 def render_home_page():
-    """Render the home page."""
+    """Render the professional home page."""
     render_sidebar()
-    render_header()
-
-    st.markdown(" ")
-
-    # Hero section and quick start
-    col_main, col_side = st.columns([2.2, 1.3])
-
-    with col_main:
-        st.markdown(
-            """
-            <div class="rl-card-soft">
-                <h3 style="margin-top: 0; margin-bottom: 0.4rem;">Welcome to your AI Research Lab</h3>
-                <p style="margin: 0; color: #9ca3af; font-size: 0.94rem;">
-                    Assemble a cross-disciplinary team of AI experts, connect them to live scientific data sources,
-                    and let them collaborate on your hardest research questions.
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(" ")
-
-        st.markdown("### 🔬 How it works")
-        steps = [
-            ("Build your team", "Select up to 3 domain specialists that match your research problem."),
-            ("Ask a complex question", "Pose open-ended, multi-faceted research questions, not simple facts."),
-            ("Let agents collaborate", "Domain and support agents search, critique, and cross-check each other."),
-            ("Review synthesized insights", "Receive a structured answer with citations and cross-domain links."),
-        ]
-
-        for title, desc in steps:
-            st.markdown(f"- **{title}**: {desc}")
-
-    with col_side:
-        st.markdown(
-            """
-            <div class="rl-card">
-                <div style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.18em; color: #a5b4fc; margin-bottom: 0.3rem;">
-                    Quick Start
+    
+    # Hero Section
+    render_hero_header(
+        title="Research Lab",
+        subtitle="A multi-agent AI system for rigorous academic research. Deploy specialized domain experts and support agents to investigate complex research questions with publication-quality output."
+    )
+    
+    # Value Proposition
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.markdown("""
+        <div class="research-card research-card-accent">
+            <h3 style='color: #f0f0f5; margin-top: 0;'>What Makes This Different</h3>
+            <p style='color: #a0a0b0; line-height: 1.8;'>
+                Unlike simple chatbots, Research Lab deploys a <strong style='color: #00d4aa;'>coordinated team of specialized AI agents</strong> 
+                that work together like a real research group. Each agent has deep expertise in their domain, access to academic 
+                databases, and the ability to critically analyze and synthesize findings.
+            </p>
+            <div style='margin-top: 1.5rem;'>
+                <div style='display: flex; gap: 1.5rem; flex-wrap: wrap;'>
+                    <div style='flex: 1; min-width: 200px;'>
+                        <div style='font-size: 1.5rem; margin-bottom: 0.5rem;'>📚</div>
+                        <div style='font-weight: 600; color: #f0f0f5; margin-bottom: 0.25rem;'>Academic Rigor</div>
+                        <div style='font-size: 0.85rem; color: #606070;'>Every claim backed by citations from peer-reviewed sources</div>
+                    </div>
+                    <div style='flex: 1; min-width: 200px;'>
+                        <div style='font-size: 1.5rem; margin-bottom: 0.5rem;'>🔬</div>
+                        <div style='font-weight: 600; color: #f0f0f5; margin-bottom: 0.25rem;'>Multi-Domain</div>
+                        <div style='font-size: 0.85rem; color: #606070;'>Cross-disciplinary synthesis from multiple expert perspectives</div>
+                    </div>
+                    <div style='flex: 1; min-width: 200px;'>
+                        <div style='font-size: 1.5rem; margin-bottom: 0.5rem;'>📄</div>
+                        <div style='font-weight: 600; color: #f0f0f5; margin-bottom: 0.25rem;'>Publication Quality</div>
+                        <div style='font-size: 0.85rem; color: #606070;'>Structured output that reads like a research paper</div>
+                    </div>
                 </div>
-                <p style="margin: 0 0 0.6rem 0; font-size: 0.88rem; color: #e5e7eb;">
-                    Configure a research team and start a live session in under a minute.
-                </p>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(" ")
-        if st.button("Configure your team →", type="primary", use_container_width=True):
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("""
+        <div class="research-card" style='height: 100%;'>
+            <h3 style='color: #f0f0f5; margin-top: 0;'>Quick Start</h3>
+            <div style='color: #a0a0b0;'>
+                <div style='display: flex; align-items: center; margin-bottom: 1rem;'>
+                    <span style='background: #00d4aa; color: #0a0a0f; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-size: 0.8rem; margin-right: 0.75rem;'>1</span>
+                    <span>Configure your research team</span>
+                </div>
+                <div style='display: flex; align-items: center; margin-bottom: 1rem;'>
+                    <span style='background: #0ea5e9; color: #0a0a0f; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-size: 0.8rem; margin-right: 0.75rem;'>2</span>
+                    <span>Ask a research question</span>
+                </div>
+                <div style='display: flex; align-items: center; margin-bottom: 1rem;'>
+                    <span style='background: #8b5cf6; color: white; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-size: 0.8rem; margin-right: 0.75rem;'>3</span>
+                    <span>Receive a research brief</span>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("<div style='height: 2rem'></div>", unsafe_allow_html=True)
+    
+    # Research Domains Section
+    st.markdown("""
+    <div style='font-size: 0.7rem; color: #606070; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 1rem;'>Available Research Domains</div>
+    """, unsafe_allow_html=True)
+    
+    # Domain cards in 4 columns
+    cols = st.columns(4)
+    for i, field in enumerate(RESEARCH_FIELDS):
+        with cols[i % 4]:
+            icon = DOMAIN_ICONS.get(field, "📌")
+            name = FIELD_DISPLAY_NAMES.get(field, field)
+            desc = FIELD_DESCRIPTIONS.get(field, "")
+            
+            st.markdown(f"""
+            <div class="domain-card">
+                <div class="domain-icon">{icon}</div>
+                <div class="domain-name">{name}</div>
+                <div class="domain-desc">{desc[:80]}...</div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    st.markdown("<div style='height: 2rem'></div>", unsafe_allow_html=True)
+    
+    # How It Works
+    st.markdown("""
+    <div style='font-size: 0.7rem; color: #606070; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 1rem;'>How The System Works</div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.markdown("""
+        <div class="research-card" style='text-align: center; padding: 1.5rem;'>
+            <div style='font-size: 2rem; margin-bottom: 1rem;'>🎯</div>
+            <div style='font-weight: 600; color: #f0f0f5; margin-bottom: 0.5rem;'>Query Analysis</div>
+            <div style='font-size: 0.8rem; color: #606070;'>
+                The orchestrator analyzes your question and routes it to the most relevant domain experts
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("""
+        <div class="research-card" style='text-align: center; padding: 1.5rem;'>
+            <div style='font-size: 2rem; margin-bottom: 1rem;'>🔍</div>
+            <div style='font-weight: 600; color: #f0f0f5; margin-bottom: 0.5rem;'>Literature Search</div>
+            <div style='font-size: 0.8rem; color: #606070;'>
+                Agents search arXiv, PubMed, Semantic Scholar, and more for relevant papers
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown("""
+        <div class="research-card" style='text-align: center; padding: 1.5rem;'>
+            <div style='font-size: 2rem; margin-bottom: 1rem;'>🧪</div>
+            <div style='font-weight: 600; color: #f0f0f5; margin-bottom: 0.5rem;'>Critical Analysis</div>
+            <div style='font-size: 0.8rem; color: #606070;'>
+                Support agents review methodology, verify facts, and synthesize across domains
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col4:
+        st.markdown("""
+        <div class="research-card" style='text-align: center; padding: 1.5rem;'>
+            <div style='font-size: 2rem; margin-bottom: 1rem;'>📝</div>
+            <div style='font-weight: 600; color: #f0f0f5; margin-bottom: 0.5rem;'>Academic Output</div>
+            <div style='font-size: 0.8rem; color: #606070;'>
+                Receive a structured research brief with proper citations and references
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("<div style='height: 2rem'></div>", unsafe_allow_html=True)
+    
+    # CTA Button
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("🚀  Configure Your Research Team", type="primary", use_container_width=True):
             st.session_state.page = "team_setup"
             st.rerun()
-
-    st.markdown(" ")
-    st.markdown("### Available Research Domains")
-
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.markdown("**🤖 AI / Machine Learning**")
-        st.caption("Models, benchmarks, and learning theory.")
-    with c2:
-        st.markdown("**⚛️ Physics**")
-        st.caption("Quantum, particle, astro, and more.")
-    with c3:
-        st.markdown("**🧬 Biology**")
-        st.caption("Genomics, systems biology, life sciences.")
-    with c4:
-        st.markdown("**⚗️ Chemistry**")
-        st.caption("Molecules, reactions, and materials.")
-
-    c5, c6, c7, c8 = st.columns(4)
-    with c5:
-        st.markdown("**📐 Mathematics**")
-        st.caption("Pure and applied mathematical research.")
-    with c6:
-        st.markdown("**🧠 Neuroscience**")
-        st.caption("Brain, cognition, and neural systems.")
-    with c7:
-        st.markdown("**💊 Medicine**")
-        st.caption("Clinical evidence and medical trials.")
-    with c8:
-        st.markdown("**💻 Computer Science**")
-        st.caption("Systems, theory, and practical CS.")
-

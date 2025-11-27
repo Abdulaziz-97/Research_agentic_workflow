@@ -22,7 +22,7 @@ class MessageType(TypedDict):
     metadata: Dict[str, Any]
 
 
-class WorkflowState(TypedDict):
+class WorkflowState(TypedDict, total=False):
     """Main state for the LangGraph research workflow."""
     
     # Message history with automatic aggregation
@@ -42,26 +42,20 @@ class WorkflowState(TypedDict):
     support_results: Dict[str, ResearchResult]
     
     # Workflow control
-    current_phase: Literal[
-        "init",
-        "routing", 
-        "domain_research",
-        "literature_review",
-        "methodology_check",
-        "fact_check",
-        "synthesis",
-        "writing",
-        "complete",
-        "error"
-    ]
+    current_phase: str
     
     # Routing decisions
     active_domain_agents: List[str]
     active_support_agents: List[str]
+    routing_reasoning: str
     
     # Final output
     final_response: Optional[str]
     final_papers: List[Paper]
+    
+    # Research stats
+    research_stats: Dict[str, Any]
+    phase_details: Dict[str, Any]
     
     # Error handling
     error_message: Optional[str]
@@ -78,24 +72,27 @@ def create_initial_state(
     team_config: TeamConfiguration
 ) -> WorkflowState:
     """Create initial workflow state."""
-    return WorkflowState(
-        messages=[],
-        current_query=None,
-        team_config=team_config,
-        agent_states={},
-        domain_results=[],
-        support_results={},
-        current_phase="init",
-        active_domain_agents=[],
-        active_support_agents=[],
-        final_response=None,
-        final_papers=[],
-        error_message=None,
-        retry_count=0,
-        session_id=session_id,
-        started_at=datetime.now().isoformat(),
-        completed_at=None
-    )
+    return {
+        "messages": [],
+        "current_query": None,
+        "team_config": team_config,
+        "agent_states": {},
+        "domain_results": [],
+        "support_results": {},
+        "current_phase": "init",
+        "active_domain_agents": [],
+        "active_support_agents": [],
+        "routing_reasoning": "",
+        "final_response": None,
+        "final_papers": [],
+        "research_stats": {},
+        "phase_details": {},
+        "error_message": None,
+        "retry_count": 0,
+        "session_id": session_id,
+        "started_at": datetime.now().isoformat(),
+        "completed_at": None
+    }
 
 
 def add_user_message(state: WorkflowState, content: str) -> WorkflowState:

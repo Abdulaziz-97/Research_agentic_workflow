@@ -2,7 +2,10 @@
 langchain>=0.2.0
 langgraph>=0.2.0
 langchain-openai>=0.1.0
+langchain-google-genai>=0.1.0
+google-genai>=0.2.0
 langchain-community>=0.2.0
+networkx>=3.2.1
 
 # Vector Database
 chromadb>=0.5.0

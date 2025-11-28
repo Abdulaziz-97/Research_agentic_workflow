@@ -65,6 +65,10 @@ class ResearchResult(BaseModel):
         default_factory=list, 
         description="Notes from reflection phase"
     )
+    thinking_steps: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Step-by-step thinking/reasoning process (Gemini-style)"
+    )
     timestamp: datetime = Field(default_factory=datetime.now, description="Result timestamp")
     
     def to_markdown(self) -> str:

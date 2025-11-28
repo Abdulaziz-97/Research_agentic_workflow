@@ -1,6 +1,6 @@
 """Application settings and configuration."""
 
-from typing import Literal
+from typing import Literal, List
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 
@@ -14,10 +14,65 @@ class Settings(BaseSettings):
         extra="ignore"
     )
     
+    # LLM Provider Selection
+    llm_provider: Literal["openai", "gemini"] = Field(
+        default="openai",
+        description="Primary LLM provider to use"
+    )
+    
     # OpenAI Configuration
-    openai_api_key: str = Field(default="", description="OpenAI API key")
+    openai_api_key: str = Field(default="", description="OpenAI API key (single key or comma-separated for multiple)")
     openai_base_url: str = Field(default="", description="OpenAI base URL (for custom endpoints)")
-    openai_model: str = Field(default="gpt-4o", description="OpenAI model to use")
+    openai_model: str = Field(default="gpt-3.5-turbo", description="OpenAI model to use (gpt-3.5-turbo is cheapest)")
+    cost_saving_mode: bool = Field(default=False, description="Use cheaper models for non-critical agents to reduce costs")
+    
+    @property
+    def openai_api_keys(self) -> list[str]:
+        """Get list of API keys (supports comma-separated or single key)."""
+        if not self.openai_api_key:
+            return []
+        
+        # Split by comma and clean up
+        keys = [k.strip() for k in self.openai_api_key.split(",") if k.strip()]
+        return keys
+    
+    # Gemini Configuration
+    gemini_api_key: str = Field(default="", description="Gemini API key (single key or comma-separated for multiple)")
+    gemini_model: str = Field(default="gemini-3.0-pro", description="Gemini model to use")
+    gemini_embedding_model: str = Field(default="text-embedding-004", description="Gemini embedding model")
+    
+    @property
+    def gemini_api_keys(self) -> List[str]:
+        """Get list of Gemini API keys."""
+        if not self.gemini_api_key:
+            return []
+        return [k.strip() for k in self.gemini_api_key.split(",") if k.strip()]
+    
+    @property
+    def llm_api_keys(self) -> List[str]:
+        """Return API keys for the active LLM provider."""
+        if self.llm_provider == "gemini":
+            return self.gemini_api_keys
+        return self.openai_api_keys
+    
+    @property
+    def llm_model(self) -> str:
+        """Return the model name for the active LLM provider."""
+        if self.llm_provider == "gemini":
+            return self.gemini_model
+        return self.openai_model
+    
+    @property
+    def embedding_model(self) -> str:
+        """Return embedding model for the active provider."""
+        if self.llm_provider == "gemini":
+            return self.gemini_embedding_model
+        return "text-embedding-3-small"
+    
+    @property
+    def provider_display_name(self) -> str:
+        """Human-readable provider name."""
+        return "Google Gemini" if self.llm_provider == "gemini" else "OpenAI"
     
     # Tavily Configuration
     tavily_api_key: str = Field(default="", description="Tavily API key for web search")

@@ -7,10 +7,10 @@ import json
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
-from langchain_openai import OpenAIEmbeddings
 
 from states.agent_state import MemoryEntry, Paper
 from config.settings import settings
+from config.llm_factory import create_embedding_model
 
 
 class LongTermMemory:
@@ -52,9 +52,7 @@ class LongTermMemory:
         )
         
         # Initialize embeddings
-        self._embeddings = OpenAIEmbeddings(
-            openai_api_key=settings.openai_api_key
-        )
+        self._embeddings = create_embedding_model(settings.embedding_model)
     
     def _generate_embedding(self, text: str) -> List[float]:
         """Generate embedding for text."""

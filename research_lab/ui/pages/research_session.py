@@ -1,5 +1,6 @@
 """Research session page - Main research command center."""
 
+import json
 import streamlit as st
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -15,12 +16,26 @@ from ui.components import (
     DOMAIN_ICONS,
     SUPPORT_AGENT_INFO
 )
-from config.settings import FIELD_DISPLAY_NAMES
+from ui.components_thinking import render_thinking_display, render_thinking_timeline
+from config.settings import FIELD_DISPLAY_NAMES, settings
 from graphs.research_graph import create_research_graph
 
 
 def get_or_create_graph():
     """Get or create the research graph."""
+    # Ensure key manager is initialized before creating graph
+    from config.key_manager import get_key_manager, initialize_key_manager
+    
+    key_manager = get_key_manager()
+    if not key_manager:
+        # Initialize if not already done
+        initialize_key_manager(
+            keys=settings.llm_api_keys,
+            base_url=settings.openai_base_url if settings.llm_provider == "openai" and settings.openai_base_url else None,
+            model=settings.llm_model,
+            provider=settings.llm_provider
+        )
+    
     if "research_graph" not in st.session_state or st.session_state.research_graph is None:
         team_config = st.session_state.get("team_config")
         if team_config:
@@ -161,6 +176,11 @@ def render_research_session_page():
                         if isinstance(result, dict):
                             research_stats = result.get("research_stats", {}) or {}
                         
+                        # Extract thinking trail
+                        thinking_trail = []
+                        if isinstance(result, dict):
+                            thinking_trail = result.get("thinking_trail", []) or []
+                        
                         # Collect all papers
                         all_papers = []
                         for dr in domain_results:
@@ -178,10 +198,24 @@ def render_research_session_page():
                                 "content": final_response,
                                 "timestamp": datetime.now().isoformat(),
                                 "stats": research_stats,
-                                "papers": all_papers
+                                "papers": all_papers,
+                                "thinking_trail": thinking_trail
                             })
                             st.session_state.messages = messages
-                            st.session_state.last_results = dict(result) if result else {}
+                            # Store full result including thinking_trail
+                            result_dict = {}
+                            if isinstance(result, dict):
+                                result_dict = dict(result)
+                            elif hasattr(result, '__dict__'):
+                                result_dict = result.__dict__.copy()
+                            elif hasattr(result, 'keys'):
+                                result_dict = dict(result)
+                            
+                            # Always ensure it's a dict and include thinking_trail
+                            if not isinstance(result_dict, dict):
+                                result_dict = {}
+                            result_dict["thinking_trail"] = thinking_trail
+                            st.session_state.last_results = result_dict
                             
                             # Add to history
                             history = st.session_state.get("research_history", [])
@@ -206,15 +240,276 @@ def render_research_session_page():
                     
                 except Exception as e:
                     import traceback
+                    import asyncio
+                    error_str = str(e)
                     error_details = traceback.format_exc()
-                    st.error(f"Research Error: {str(e)}")
-                    messages.append({
-                        "role": "assistant",
-                        "content": f"An error occurred during research: {str(e)}",
-                        "timestamp": datetime.now().isoformat()
-                    })
+                    
+                    # AUTOMATIC KEY ROTATION - Try next key immediately if this is a key error
+                    from config.key_manager import get_key_manager
+                    key_manager = get_key_manager()
+                    
+                    # Check if this is a key-related error
+                    is_key_error = any(term in error_str.lower() for term in [
+                        "insufficient", "budget", "rate limit", "429", "401", "authentication"
+                    ])
+                    
+                    # AUTOMATIC RETRY: Try ALL available keys until one works
+                    if key_manager and is_key_error:
+                        available_keys = key_manager.get_available_keys()
+                        max_auto_retries = min(6, len(available_keys))  # Try up to 6 keys automatically
+                        
+                        if len(available_keys) > 1:
+                            # Mark first failed key
+                            current_key = key_manager.get_current_key()
+                            if current_key:
+                                try:
+                                    asyncio.run(key_manager.mark_key_failed(current_key, error_str))
+                                except:
+                                    pass
+                            
+                            # Try each available key automatically
+                            for retry_num in range(max_auto_retries):
+                                # Rotate to next key
+                                key_manager._rotate_to_next_available()
+                                new_key = key_manager.get_current_key()
+                                
+                                if not new_key:
+                                    break
+                                
+                                # Try again with new key automatically
+                                try:
+                                    with status:
+                                        st.write(f"🔄 Auto-retry {retry_num + 1}/{max_auto_retries}: Trying key {new_key[:30]}...")
+                                    
+                                    # Clear graph cache to force recreation with new key
+                                    if "research_graph" in st.session_state:
+                                        del st.session_state["research_graph"]
+                                    
+                                    graph = get_or_create_graph()
+                                    if graph:
+                                        result = graph.run_sync(query, thread_id=f"session_{datetime.now().timestamp()}")
+                                        
+                                        # Check if successful
+                                        final_response = result.get("final_response", "") if isinstance(result, dict) else ""
+                                        if final_response:
+                                            # SUCCESS! Process result
+                                            domain_results = result.get("domain_results", []) if isinstance(result, dict) else []
+                                            research_stats = result.get("research_stats", {}) if isinstance(result, dict) else {}
+                                            thinking_trail = result.get("thinking_trail", []) if isinstance(result, dict) else []
+                                            
+                                            all_papers = []
+                                            for dr in domain_results:
+                                                try:
+                                                    if hasattr(dr, 'papers'):
+                                                        all_papers.extend(dr.papers)
+                                                    elif isinstance(dr, dict) and 'papers' in dr:
+                                                        all_papers.extend(dr['papers'])
+                                                except:
+                                                    pass
+                                            
+                                            messages.append({
+                                                "role": "assistant",
+                                                "content": final_response,
+                                                "timestamp": datetime.now().isoformat(),
+                                                "stats": research_stats,
+                                                "papers": all_papers,
+                                                "thinking_trail": thinking_trail
+                                            })
+                                            st.session_state.messages = messages
+                                            result_dict = dict(result) if hasattr(result, 'keys') else result
+                                            if isinstance(result_dict, dict):
+                                                result_dict["thinking_trail"] = thinking_trail
+                                            st.session_state.last_results = result_dict if result_dict else {}
+                                            
+                                            history = st.session_state.get("research_history", [])
+                                            history.append({
+                                                "query": query,
+                                                "timestamp": datetime.now().isoformat(),
+                                                "papers_count": len(all_papers)
+                                            })
+                                            st.session_state.research_history = history
+                                            
+                                            status.update(label=f"✅ Success with key {retry_num + 1}!", state="complete", expanded=False)
+                                            st.success(f"✅ Successfully completed with key {retry_num + 1}!")
+                                            st.rerun()
+                                            return
+                                        else:
+                                            # No response, mark as failed and try next key
+                                            try:
+                                                asyncio.run(key_manager.mark_key_failed(new_key, "No response generated"))
+                                            except:
+                                                pass
+                                            continue
+                                except Exception as retry_error:
+                                    # This key also failed, mark it and try next
+                                    error_str_retry = str(retry_error)
+                                    is_still_key_error = any(term in error_str_retry.lower() for term in ["insufficient", "budget"])
+                                    
+                                    if is_still_key_error and new_key:
+                                        try:
+                                            asyncio.run(key_manager.mark_key_failed(new_key, error_str_retry))
+                                        except:
+                                            pass
+                                        continue
+                                    else:
+                                        # Different error, stop retrying
+                                        break
+                            
+                            # All auto-retries failed
+                            error_str = f"{error_str} (Auto-tried {max_auto_retries} keys)"
+                    
+                    # Check key manager status for display
+                    key_status_info = ""
+                    if key_manager:
+                        status = key_manager.get_status()
+                        available = status.get("available_keys", 0)
+                        total = status.get("total_keys", 0)
+                        current = status.get("current_key", "Unknown")
+                        
+                        key_status_info = f"""
+                        
+                        **Key Rotation Status:**
+                        - Total keys configured: {total}
+                        - Available keys: {available}
+                        - Current key: {current}
+                        - Keys tried: {sum(1 for k in status['keys'] if k.get('failure_count', 0) > 0)} failed
+                        - Total failures: {sum(k.get('failure_count', 0) for k in status['keys'])}
+                        """
+                        
+                        if available == 0:
+                            key_status_info += "\n⚠️ **All keys have been exhausted or disabled.**"
+                            key_status_info += "\n\n**Options:**"
+                            key_status_info += "\n1. Wait 1 hour for keys to auto-recover (budget errors disable for 1 hour)"
+                            key_status_info += "\n2. Add credits to your keys"
+                            key_status_info += "\n3. Click 'Reset Keys' below to force re-enable all keys (if you've added credits)"
+                        elif available < total:
+                            key_status_info += f"\n✅ **{available} key(s) still available - system will retry automatically.**"
+                    
+                    # Provider-specific metadata for support copy
+                    provider_name = settings.provider_display_name
+                    env_var_name = "GEMINI_API_KEY" if settings.llm_provider == "gemini" else "OPENAI_API_KEY"
+                    billing_url = "https://aistudio.google.com/app/apikey" if settings.llm_provider == "gemini" else "https://platform.openai.com/account/billing"
+                    keys_url = "https://aistudio.google.com/app/apikey" if settings.llm_provider == "gemini" else "https://platform.openai.com/api-keys"
+                    limits_url = "https://ai.google.dev/gemini-api/docs/rate-limits" if settings.llm_provider == "gemini" else "https://platform.openai.com/account/limits"
+                    env_tip_example = f"{env_var_name}=key1,key2,key3,key4"
+                    alt_endpoint_note = ""
+                    if settings.llm_provider == "openai":
+                        alt_endpoint_note = "\n**Alternative:** If using a custom endpoint (Vocareum), check that endpoint's billing status."
+                    
+                    # Check for specific API errors
+                    if "Insufficient budget" in error_str or "budget" in error_str.lower() or "insufficient" in error_str.lower():
+                        # Check if we should retry with next key
+                        should_retry = False
+                        retry_message = ""
+                        
+                        if key_manager:
+                            available = key_manager.get_available_keys()
+                            if len(available) > 0:
+                                should_retry = True
+                                retry_message = f"\n\n**🔄 Automatic Retry Available:** {len(available)} key(s) still available. Click 'Retry with Next Key' below to continue."
+                        
+                        error_message = f"""
+                        **⚠️ API Billing Error: Insufficient Credits**
+                        
+                        Your {provider_name} account has insufficient credits or has hit a spending limit.
+                        {key_status_info}
+                        
+                        **To fix this:**
+                        1. Check your billing dashboard: {billing_url}
+                        2. Add credits or increase your spending limit
+                        3. Verify your API key has sufficient permissions
+                        4. **If you have multiple keys in .env**: The system will automatically try the next key on retry
+                        
+                        {alt_endpoint_note}
+                        {retry_message}
+                        
+                        **💡 Tip:** Update your `.env` file with multiple keys (comma-separated) for automatic rotation:
+                        ```
+                        {env_tip_example}
+                        ```
+                        """
+                        st.error(error_message)
+                        
+                        # Add retry/reset buttons
+                        col1, col2, col3 = st.columns([1, 1, 3])
+                        
+                        if should_retry:
+                            with col1:
+                                if st.button("🔄 Retry with Next Key", type="primary", use_container_width=True):
+                                    # Rotate to next key and retry
+                                    if key_manager:
+                                        # Mark current key as failed and rotate
+                                        current_key = key_manager.get_current_key()
+                                        if current_key:
+                                            import asyncio
+                                            asyncio.run(key_manager.mark_key_failed(current_key, "Manual retry - insufficient credits"))
+                                        key_manager._rotate_to_next_available()
+                                    
+                                    # Clear the error message and retry
+                                    st.session_state.last_error = None
+                                    st.rerun()
+                        
+                        # Add reset button if all keys are disabled
+                        if key_manager:
+                            available = key_manager.get_available_keys()
+                            if len(available) == 0:
+                                with col2:
+                                    if st.button("🔄 Reset All Keys", type="secondary", use_container_width=True):
+                                        # Force reset all keys
+                                        key_manager.force_reset_all_keys()
+                                        st.success("✅ All keys reset! Try your query again.")
+                                        st.rerun()
+                        
+                        messages.append({
+                            "role": "assistant",
+                            "content": error_message,
+                            "timestamp": datetime.now().isoformat()
+                        })
+                    elif "401" in error_str or "authentication" in error_str.lower():
+                        error_message = f"""
+                        **🔑 API Authentication Error**
+                        
+                        Your {provider_name} API key is invalid or expired.
+                        
+                        **To fix this:**
+                        1. Check your `.env` file has the correct `{env_var_name}`
+                        2. Verify the key is active at {keys_url}
+                        """
+                        if settings.llm_provider == "openai":
+                            error_message += "\n3. If using a custom endpoint, verify `OPENAI_BASE_URL` is correct"
+                        st.error(error_message)
+                        messages.append({
+                            "role": "assistant",
+                            "content": error_message,
+                            "timestamp": datetime.now().isoformat()
+                        })
+                    elif "rate limit" in error_str.lower() or "429" in error_str:
+                        error_message = f"""
+                        **⏱️ Rate Limit Exceeded**
+                        
+                        You've hit the API rate limit. Please wait a moment and try again.
+                        
+                        **Tips:**
+                        - Wait 1-2 minutes before retrying
+                        - Consider using fewer domain agents (1-2 instead of 3)
+                        - Review provider rate limits: {limits_url}
+                        """
+                        st.warning(error_message)
+                        messages.append({
+                            "role": "assistant",
+                            "content": error_message,
+                            "timestamp": datetime.now().isoformat()
+                        })
+                    else:
+                        st.error(f"Research Error: {error_str}")
+                        messages.append({
+                            "role": "assistant",
+                            "content": f"An error occurred during research: {error_str}",
+                            "timestamp": datetime.now().isoformat()
+                        })
+                    
                     st.session_state.messages = messages
-                    status.update(label=f"❌ Error: {str(e)[:50]}...", state="error", expanded=False)
+                    status.update(label=f"❌ Error occurred", state="error", expanded=False)
             
             st.rerun()
         
@@ -259,6 +554,29 @@ def render_research_session_page():
                             {msg["content"]}
                         </div>
                         """, unsafe_allow_html=True)
+                    
+                    # Display thinking/reasoning steps (Gemini-style)
+                    # First check message for thinking_trail
+                    thinking_trail = msg.get("thinking_trail", [])
+                    
+                    # Fallback to last_results (with None check)
+                    if not thinking_trail:
+                        last_results = st.session_state.get("last_results")
+                        if last_results and isinstance(last_results, dict):
+                            thinking_trail = last_results.get("thinking_trail", [])
+                            
+                            # Also check if thinking steps are in domain results
+                            if not thinking_trail:
+                                domain_results = last_results.get("domain_results", [])
+                                if domain_results:
+                                    for dr in domain_results:
+                                        if isinstance(dr, dict) and "thinking_steps" in dr:
+                                            thinking_trail.extend(dr.get("thinking_steps", []))
+                                        elif hasattr(dr, 'thinking_steps'):
+                                            thinking_trail.extend(dr.thinking_steps)
+                    
+                    if thinking_trail:
+                        render_thinking_display(thinking_trail, "Research Team")
     
     with side_col:
         # Research Info Panel
@@ -316,6 +634,76 @@ def render_research_session_page():
             if all_papers:
                 st.markdown("<div style='height: 1rem'></div>", unsafe_allow_html=True)
                 render_paper_list(all_papers, title="Referenced Papers")
+
+            # Knowledge Graph Context
+            knowledge = last_results.get("knowledge_context", {})
+            if knowledge and knowledge.get("nodes"):
+                st.markdown("<div style='height: 1rem'></div>", unsafe_allow_html=True)
+                with st.expander("📊 Knowledge Graph Path", expanded=False):
+                    st.markdown(f"**Path Summary:** {knowledge.get('summary','')}")
+                    if knowledge.get("path"):
+                        path_str = " → ".join([n.get("label", n.get("id", "")) for n in knowledge.get("nodes", [])[:10]])
+                        st.markdown(f"**Concepts:** {path_str}")
+                    st.markdown(f"**Nodes:** {len(knowledge.get('nodes', []))} | **Edges:** {len(knowledge.get('edges', []))}")
+
+            # Ontologist Output
+            ontology = last_results.get("ontology_blueprint")
+            if ontology:
+                st.markdown("<div style='height: 0.5rem'></div>", unsafe_allow_html=True)
+                with st.expander("🧠 Ontologist Hypothesis Blueprint", expanded=False):
+                    if isinstance(ontology, dict) and "raw" not in ontology:
+                        st.json(ontology, expanded=True)
+                    else:
+                        st.code(str(ontology)[:2000], language="json")
+
+            # Scientist I Output
+            scientist_one = last_results.get("scientist_proposal", {}).get("markdown")
+            if scientist_one:
+                st.markdown("<div style='height: 0.5rem'></div>", unsafe_allow_html=True)
+                with st.expander("🔬 Scientist I: Research Proposal", expanded=False):
+                    st.markdown(scientist_one, unsafe_allow_html=True)
+
+            # Scientist II Output
+            scientist_two = last_results.get("scientist_expansion", {}).get("markdown")
+            if scientist_two:
+                st.markdown("<div style='height: 0.5rem'></div>", unsafe_allow_html=True)
+                with st.expander("⚗️ Scientist II: Quantitative Deep Dive", expanded=False):
+                    st.markdown(scientist_two, unsafe_allow_html=True)
+
+            # Critic Output
+            critic = last_results.get("critic_feedback")
+            if critic:
+                st.markdown("<div style='height: 0.5rem'></div>", unsafe_allow_html=True)
+                with st.expander("🔍 Critic: Critical Assessment", expanded=False):
+                    st.markdown(critic, unsafe_allow_html=True)
+
+            # Planner Output
+            planner = last_results.get("planner_plan", {}).get("markdown")
+            if planner:
+                st.markdown("<div style='height: 0.5rem'></div>", unsafe_allow_html=True)
+                with st.expander("📋 Planner: Actionable Roadmap", expanded=False):
+                    st.markdown(planner, unsafe_allow_html=True)
+
+            # Novelty Assessment
+            novelty = last_results.get("novelty_report")
+            if novelty:
+                st.markdown("<div style='height: 0.5rem'></div>", unsafe_allow_html=True)
+                with st.expander("✨ Novelty Assessment", expanded=True):
+                    if isinstance(novelty, dict):
+                        if "novelty_score" in novelty:
+                            score = novelty.get("novelty_score", 0.0)
+                            st.metric("Novelty Score", f"{score:.2f}", delta=f"{score*100:.0f}%")
+                        if "overlapping_papers" in novelty and novelty["overlapping_papers"]:
+                            st.markdown("**Overlapping Papers:**")
+                            for paper in novelty["overlapping_papers"][:5]:
+                                st.markdown(f"- **{paper.get('title', 'Unknown')}** ({paper.get('year', 'N/A')})")
+                                st.caption(f"Similarity: {paper.get('similarity', 'N/A')} - {paper.get('overlap_description', '')}")
+                        if "summary" in novelty:
+                            st.markdown(f"**Assessment:** {novelty['summary']}")
+                        if "recommendations" in novelty:
+                            st.markdown(f"**Recommendations:** {novelty['recommendations']}")
+                    else:
+                        st.json(novelty, expanded=False)
         
         # Session history
         history = st.session_state.get("research_history", [])

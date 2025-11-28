@@ -12,6 +12,8 @@ load_dotenv()
 from ui.pages.home import render_home_page
 from ui.pages.team_setup import render_team_setup_page
 from ui.pages.research_session import render_research_session_page
+from config.settings import settings
+from config.key_manager import initialize_key_manager
 
 
 def inject_custom_css():
@@ -610,6 +612,20 @@ def inject_custom_css():
     """, unsafe_allow_html=True)
 
 
+def init_key_manager():
+    """Initialize the API key manager with multiple keys."""
+    keys = settings.llm_api_keys
+    if keys:
+        key_manager = initialize_key_manager(
+            keys=keys,
+            base_url=settings.openai_base_url if settings.llm_provider == "openai" and settings.openai_base_url else None,
+            model=settings.llm_model,
+            provider=settings.llm_provider
+        )
+        return key_manager
+    return None
+
+
 def init_session_state():
     """Initialize Streamlit session state variables."""
     defaults = {
@@ -637,6 +653,10 @@ def main():
     )
     
     inject_custom_css()
+    
+    # Initialize key manager first (before any agents are created)
+    init_key_manager()
+    
     init_session_state()
     
     # Route to appropriate page

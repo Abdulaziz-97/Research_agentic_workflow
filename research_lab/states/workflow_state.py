@@ -49,6 +49,16 @@ class WorkflowState(TypedDict, total=False):
     active_support_agents: List[str]
     routing_reasoning: str
     
+    # Knowledge graph + hypothesis context
+    knowledge_context: Dict[str, Any]
+    ontology_blueprint: Dict[str, Any]
+    scientist_proposal: Dict[str, Any]
+    scientist_expansion: Dict[str, Any]
+    critic_feedback: str
+    planner_plan: Dict[str, Any]
+    novelty_report: Dict[str, Any]
+    hierarchical_sections: Dict[str, Any]
+
     # Final output
     final_response: Optional[str]
     final_papers: List[Paper]
@@ -56,6 +66,9 @@ class WorkflowState(TypedDict, total=False):
     # Research stats
     research_stats: Dict[str, Any]
     phase_details: Dict[str, Any]
+    
+    # Thinking/reasoning steps for UI display
+    thinking_trail: List[Dict[str, Any]]
     
     # Error handling
     error_message: Optional[str]
@@ -85,8 +98,17 @@ def create_initial_state(
         "routing_reasoning": "",
         "final_response": None,
         "final_papers": [],
+        "knowledge_context": {},
+        "ontology_blueprint": {},
+        "scientist_proposal": {},
+        "scientist_expansion": {},
+        "critic_feedback": "",
+        "planner_plan": {},
+        "novelty_report": {},
+        "hierarchical_sections": {},
         "research_stats": {},
         "phase_details": {},
+        "thinking_trail": [],
         "error_message": None,
         "retry_count": 0,
         "session_id": session_id,

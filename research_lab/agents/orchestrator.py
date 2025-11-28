@@ -5,7 +5,6 @@ from datetime import datetime
 import asyncio
 import uuid
 
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from pydantic import BaseModel, Field
@@ -21,6 +20,7 @@ from agents.base_agent import BaseResearchAgent
 from agents.domain import DOMAIN_AGENT_REGISTRY
 from agents.support import SUPPORT_AGENT_REGISTRY
 from config.settings import settings, FIELD_DISPLAY_NAMES
+from config.llm_factory import create_chat_model
 
 
 class RoutingDecision(BaseModel):
@@ -39,14 +39,10 @@ class Orchestrator:
         self.team_config = team_config
         self.session_id = str(uuid.uuid4())
         
-        llm_kwargs = {
-            "model": settings.openai_model,
-            "temperature": 0.3,
-            "openai_api_key": settings.openai_api_key
-        }
-        if settings.openai_base_url:
-            llm_kwargs["openai_api_base"] = settings.openai_base_url
-        self._llm = ChatOpenAI(**llm_kwargs)
+        self._llm = create_chat_model(
+            model=settings.llm_model,
+            temperature=0.3
+        )
         
         self._domain_agents: Dict[str, BaseResearchAgent] = {}
         self._support_agents: Dict[str, BaseResearchAgent] = {}

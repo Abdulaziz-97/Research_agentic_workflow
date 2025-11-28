@@ -242,6 +242,12 @@ class ResearchToolkit:
             tools.append(self.pubmed.as_langchain_tool())
             tools.append(self.semantic_scholar.as_langchain_tool())
         
+        # Knowledge graph agents (like NoveltyChecker) get all tools
+        if field == "knowledge_graph":
+            tools.append(self.semantic_scholar.as_langchain_tool())
+            tools.append(self.arxiv.as_langchain_tool())
+            tools.append(self.pubmed.as_langchain_tool())
+        
         return tools
     
     def get_all_tools(self) -> List:

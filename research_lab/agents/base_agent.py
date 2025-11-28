@@ -5,11 +5,12 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 import uuid
 
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
-from langchain_classic.agents import AgentExecutor, create_openai_tools_agent
+from deepagents import create_deep_agent
+from deepagents.backends import FilesystemBackend
+import os
 
 from states.agent_state import (
     AgentState, 
@@ -24,6 +25,8 @@ from rag.retriever import RetrieveReflectRetryRAG
 from rag.vector_store import VectorStore
 from tools.web_search import ResearchToolkit
 from config.settings import settings
+from config.llm_factory import create_chat_model
+from config.key_manager import get_key_manager
 
 
 class BaseResearchAgent(ABC):
@@ -31,7 +34,7 @@ class BaseResearchAgent(ABC):
     Base class for all research agents.
     
     Provides core functionality including:
-    - LLM integration with OpenAI
+    - LLM integration with the configured provider
     - Tool execution
     - Short-term and long-term memory
     - RAG-based context retrieval
@@ -59,17 +62,17 @@ class BaseResearchAgent(ABC):
         """
         self.agent_id = agent_id or f"{self.FIELD}_{uuid.uuid4().hex[:8]}"
         
-        # Initialize LLM
-        llm_kwargs = {
-            "model": settings.openai_model,
-            "temperature": 0.7,
-            "openai_api_key": settings.openai_api_key
-        }
-        # Add base URL if configured (for custom endpoints like Vocareum)
-        if settings.openai_base_url:
-            llm_kwargs["openai_api_base"] = settings.openai_base_url
-        
-        self._llm = ChatOpenAI(**llm_kwargs)
+        # Initialize LLM (will use key manager if available, otherwise fallback to direct key)
+        self._key_manager = get_key_manager()
+        if self._key_manager:
+            # Key manager will handle key rotation
+            self._llm = None  # Will be created on-demand with current key
+        else:
+            # Fallback to direct key (backward compatibility)
+            self._llm = create_chat_model(
+                model=settings.llm_model,
+                temperature=0.7
+            )
         
         # Initialize tools
         self._toolkit = ResearchToolkit()
@@ -101,36 +104,44 @@ class BaseResearchAgent(ABC):
             display_name=self.DISPLAY_NAME
         )
         
-        # Build agent executor
-        self._agent_executor = self._build_agent_executor()
+        # Build deep agent
+        self._agent_executor = self._build_deep_agent()
     
     def _get_default_tools(self) -> List:
         """Get default tools for this agent's field."""
         return self._toolkit.get_tools_for_field(self.FIELD)
     
-    def _build_agent_executor(self) -> AgentExecutor:
-        """Build the LangChain agent executor."""
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", self._get_system_prompt()),
-            MessagesPlaceholder(variable_name="chat_history", optional=True),
-            ("human", "{input}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad")
-        ])
-        
-        agent = create_openai_tools_agent(
-            llm=self._llm,
-            tools=self._tools,
-            prompt=prompt
-        )
-        
-        return AgentExecutor(
-            agent=agent,
-            tools=self._tools,
-            verbose=True,
-            handle_parsing_errors=True,
-            max_iterations=5
-        )
+    async def _get_llm(self):
+        """Get LLM instance, using key manager if available."""
+        if self._key_manager:
+            return await self._key_manager.get_llm(temperature=0.7)
+        return self._llm
     
+    def _build_deep_agent(self):
+        """Build the Deep Agent."""
+        # Create a temp workspace for this agent
+        workspace_dir = os.path.abspath(f"./workspaces/{self.agent_id}")
+        os.makedirs(workspace_dir, exist_ok=True)
+        
+        # For deep agents, we need to create the LLM synchronously
+        # We'll use the key manager's current key
+        if self._key_manager:
+            current_key = self._key_manager.get_current_key()
+            llm = create_chat_model(
+                api_key=current_key,
+                model=settings.llm_model,
+                temperature=0.7
+            )
+        else:
+            llm = self._llm
+        
+        return create_deep_agent(
+            model=llm,
+            tools=self._tools,
+            system_prompt=self._get_system_prompt(),
+            backend=FilesystemBackend(root_dir=workspace_dir)
+        )
+
     @abstractmethod
     def _get_system_prompt(self) -> str:
         """Get the system prompt for this agent. Must be overridden."""
@@ -164,14 +175,64 @@ class BaseResearchAgent(ABC):
             # Update to reflecting state
             self._state.update_status(AgentStatus.REFLECTING)
             
-            # Execute agent
-            result = await self._agent_executor.ainvoke({
-                "input": enhanced_input,
-                "chat_history": chat_history
-            })
+            # Execute agent with retry and key rotation
+            # Convert chat history to list of messages
+            messages = list(chat_history)
+            messages.append(HumanMessage(content=enhanced_input))
+            
+            max_retries = 3
+            last_error = None
+            result = None
+            
+            for attempt in range(max_retries):
+                try:
+                    result = await self._agent_executor.ainvoke({
+                        "messages": messages
+                    })
+                    
+                    # Success - mark key as working
+                    if self._key_manager:
+                        current_key = self._key_manager.get_current_key()
+                        if current_key:
+                            self._key_manager.mark_key_success(current_key)
+                    break
+                    
+                except Exception as e:
+                    last_error = e
+                    error_str = str(e)
+                    
+                    # Check if this is a key-related error
+                    is_key_error = any(term in error_str.lower() for term in [
+                        "insufficient", "budget", "rate limit", "429", "401", "authentication"
+                    ])
+                    
+                    # If we have a key manager and this is a key error, try rotating to next key
+                    if self._key_manager and is_key_error and attempt < max_retries - 1:
+                        current_key = self._key_manager.get_current_key()
+                        if current_key:
+                            await self._key_manager.mark_key_failed(current_key, error_str)
+                        
+                        # Check if we have more keys to try
+                        available = self._key_manager.get_available_keys()
+                        if available:
+                            # Rebuild agent with new key
+                            self._agent_executor = self._build_deep_agent()
+                            continue
+                        else:
+                            # No more keys available
+                            break
+                    else:
+                        # Not a key error, no key manager, or no more retries - just raise
+                        raise
+            
+            if last_error and not result:
+                raise last_error
+            
+            # Extract thinking/reasoning steps from all messages
+            thinking_steps = self._extract_thinking_steps(result["messages"])
             
             # Parse output
-            output = result.get("output", "")
+            output = result["messages"][-1].content
             
             # Extract papers from tool calls if available
             papers = existing_papers.copy()
@@ -198,7 +259,8 @@ class BaseResearchAgent(ABC):
                 insights=self._extract_insights(output),
                 confidence_score=self._calculate_confidence(output, papers),
                 sources_used=query.sources_required,
-                reflection_notes=self._state.reflection_notes
+                reflection_notes=self._state.reflection_notes,
+                thinking_steps=thinking_steps
             )
             
             # Update state
@@ -304,6 +366,78 @@ class BaseResearchAgent(ABC):
                     insights.append(insight.strip())
         
         return insights[:5]  # Top 5 insights
+    
+    def _extract_thinking_steps(self, messages: List) -> List[Dict[str, Any]]:
+        """Extract thinking/reasoning steps from agent messages (Gemini-style)."""
+        thinking_steps = []
+        step_id = 0
+        
+        for msg in messages:
+            if isinstance(msg, AIMessage):
+                step_id += 1
+                step = {
+                    "step_id": step_id,
+                    "agent_id": self.agent_id,
+                    "agent_name": self.DISPLAY_NAME,
+                    "timestamp": datetime.now().isoformat(),
+                    "reasoning": "",
+                    "tool_calls": [],
+                    "tool_results": [],
+                    "content": ""
+                }
+                
+                # Extract content blocks (deepagents format)
+                if hasattr(msg, 'content_blocks') or isinstance(msg.content, list):
+                    content_blocks = msg.content if isinstance(msg.content, list) else getattr(msg, 'content_blocks', [])
+                    
+                    for block in content_blocks:
+                        if isinstance(block, dict):
+                            block_type = block.get("type", "")
+                            
+                            # Reasoning block
+                            if block_type == "reasoning" or "reasoning" in block:
+                                step["reasoning"] = block.get("reasoning", block.get("text", ""))
+                            
+                            # Tool call
+                            elif block_type == "tool_call" or "tool_calls" in block:
+                                tool_calls = block.get("tool_calls", [block] if "name" in block else [])
+                                for tc in tool_calls:
+                                    step["tool_calls"].append({
+                                        "name": tc.get("name", "unknown"),
+                                        "args": tc.get("args", tc.get("input", {})),
+                                        "id": tc.get("id", "")
+                                    })
+                            
+                            # Text content
+                            elif block_type == "text" or isinstance(block, str):
+                                text = block.get("text", "") if isinstance(block, dict) else str(block)
+                                if text:
+                                    step["content"] += text + "\n"
+                        elif isinstance(block, str):
+                            step["content"] += block + "\n"
+                
+                # Fallback: extract from message content directly
+                if not step["content"] and hasattr(msg, 'content'):
+                    content = msg.content
+                    if isinstance(content, str):
+                        step["content"] = content
+                
+                # Extract tool calls from additional_kwargs
+                if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        step["tool_calls"].append({
+                            "name": getattr(tc, 'name', 'unknown'),
+                            "args": getattr(tc, 'args', {}),
+                            "id": getattr(tc, 'id', '')
+                        })
+                
+                # Extract tool results from following messages
+                # (This is a simplified version - in practice, tool results come in subsequent messages)
+                
+                if step["reasoning"] or step["tool_calls"] or step["content"]:
+                    thinking_steps.append(step)
+        
+        return thinking_steps
     
     def _calculate_confidence(
         self, 

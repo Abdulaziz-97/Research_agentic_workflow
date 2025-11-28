@@ -1,29 +1,22 @@
 """Embedding utilities for the RAG system."""
 
 from typing import List, Optional
-from langchain_openai import OpenAIEmbeddings
+
 from config.settings import settings
+from config.llm_factory import create_embedding_model
 
 
-def get_embeddings_model(model: str = "text-embedding-3-small") -> OpenAIEmbeddings:
+def get_embeddings_model(model: Optional[str] = None):
     """
-    Get an OpenAI embeddings model instance.
+    Get an embedding model instance for the active provider.
     
     Args:
         model: Model name to use
         
     Returns:
-        OpenAIEmbeddings instance
+        Embedding model compatible with the configured provider
     """
-    kwargs = {
-        "model": model,
-        "openai_api_key": settings.openai_api_key
-    }
-    # Add base URL if configured (for custom endpoints like Vocareum)
-    if settings.openai_base_url:
-        kwargs["openai_api_base"] = settings.openai_base_url
-    
-    return OpenAIEmbeddings(**kwargs)
+    return create_embedding_model(model or settings.embedding_model)
 
 
 class EmbeddingManager:
@@ -39,18 +32,10 @@ class EmbeddingManager:
         Initialize the embedding manager.
         
         Args:
-            model: OpenAI embedding model to use
+            model: Embedding model to use
         """
-        self.model = model
-        kwargs = {
-            "model": model,
-            "openai_api_key": settings.openai_api_key
-        }
-        # Add base URL if configured (for custom endpoints like Vocareum)
-        if settings.openai_base_url:
-            kwargs["openai_api_base"] = settings.openai_base_url
-        
-        self._embeddings = OpenAIEmbeddings(**kwargs)
+        self.model = model or settings.embedding_model
+        self._embeddings = create_embedding_model(self.model)
     
     def embed_query(self, text: str) -> List[float]:
         """
@@ -96,11 +81,12 @@ class EmbeddingManager:
     
     def get_embedding_dimension(self) -> int:
         """Get the dimension of embeddings produced by this model."""
-        # OpenAI embedding dimensions
+        # Common embedding dimensions
         dimensions = {
             "text-embedding-3-small": 1536,
             "text-embedding-3-large": 3072,
-            "text-embedding-ada-002": 1536
+            "text-embedding-ada-002": 1536,
+            "text-embedding-004": 768,
         }
         return dimensions.get(self.model, 1536)
 

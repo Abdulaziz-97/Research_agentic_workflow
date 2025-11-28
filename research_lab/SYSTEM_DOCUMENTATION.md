@@ -13,14 +13,16 @@
 5. [State Management (Pydantic Models)](#5-state-management-pydantic-models)
 6. [Memory Systems](#6-memory-systems)
 7. [RAG System (Retrieve-Reflect-Retry)](#7-rag-system-retrieve-reflect-retry)
-8. [Research Tools](#8-research-tools)
-9. [Agent System](#9-agent-system)
-10. [Orchestrator](#10-orchestrator)
-11. [LangGraph Workflow](#11-langgraph-workflow)
-12. [Streamlit UI](#12-streamlit-ui)
-13. [Data Flow](#13-data-flow)
-14. [Extending the System](#14-extending-the-system)
-15. [Troubleshooting](#15-troubleshooting)
+8. [Knowledge Graph System](#8-knowledge-graph-system)
+9. [Research Tools](#9-research-tools)
+10. [Agent System](#10-agent-system)
+11. [API Key Management](#11-api-key-management)
+12. [Orchestrator](#12-orchestrator)
+13. [LangGraph Workflow](#13-langgraph-workflow)
+14. [Streamlit UI](#14-streamlit-ui)
+15. [Data Flow](#15-data-flow)
+16. [Extending the System](#16-extending-the-system)
+17. [Troubleshooting](#17-troubleshooting)
 
 ---
 
@@ -28,22 +30,30 @@
 
 ### What is the Research Lab?
 
-The Research Lab is a **multi-agent AI system** that simulates a coalition of research scientists. It uses:
+The Research Lab is a **state-of-the-art multi-agent AI system** that simulates a coalition of research scientists producing publication-quality research outputs. It uses:
 
+- **DeepAgents** (langchain-ai/deepagents) for advanced agent capabilities with filesystem backends and planning
 - **LangChain** for LLM interactions and tool management
-- **LangGraph** for orchestrating multi-agent workflows
+- **LangGraph** for orchestrating complex multi-agent workflows
+- **NetworkX** for knowledge graph construction and path sampling
 - **ChromaDB** for vector storage and semantic search
 - **Pydantic** for type-safe state management
-- **Streamlit** for the user interface
+- **Streamlit** for the modern, research command center UI
 
 ### Key Capabilities
 
 | Capability | Description |
 |------------|-------------|
 | **Multi-Domain Research** | 8 specialized agents for different scientific fields |
+| **SciAgents Workflow** | Knowledge graph → Ontologist → Scientist I/II → Critic → Planner → Novelty Checker |
+| **Knowledge Graph** | NetworkX-based concept graphs with path sampling and entity extraction |
+| **Deep Agents** | Advanced agents with filesystem backends, planning, and sub-agent delegation |
 | **Paper Search** | Arxiv, Semantic Scholar, PubMed, Tavily web search |
 | **RAG System** | Retrieve-Reflect-Retry pattern for intelligent retrieval |
 | **Memory** | Short-term (conversation) + Long-term (persistent) |
+| **API Key Rotation** | Automatic key rotation with health tracking and fallback |
+| **Thinking Display** | Gemini-style reasoning trail showing agent thought processes |
+| **Academic Output** | Publication-quality research briefs with proper citations and structure |
 | **Collaboration** | Agents work together, synthesizing cross-domain insights |
 
 ### Project Structure
@@ -55,7 +65,8 @@ research_lab/
 ├── requirements.txt            # Python dependencies
 │
 ├── config/
-│   └── settings.py             # Configuration & constants
+│   ├── settings.py             # Configuration & constants
+│   └── key_manager.py          # API key rotation system
 │
 ├── states/
 │   ├── agent_state.py          # Pydantic models for agents
@@ -88,18 +99,30 @@ research_lab/
 │   │   ├── neuroscience_agent.py
 │   │   ├── medicine_agent.py
 │   │   └── cs_agent.py
-│   └── support/                # 5 support agents
+│   └── support/                # Support agents
 │       ├── literature_reviewer.py
 │       ├── methodology_critic.py
 │       ├── fact_checker.py
 │       ├── writing_assistant.py
-│       └── cross_domain_synthesizer.py
+│       ├── cross_domain_synthesizer.py
+│       └── scientific_workflow.py  # SciAgents workflow agents
+│           ├── OntologistAgent
+│           ├── ScientistOneAgent
+│           ├── ScientistTwoAgent
+│           ├── CriticAgent
+│           ├── PlannerAgent
+│           └── NoveltyCheckerAgent
+│
+├── knowledge_graph/
+│   ├── service.py             # Knowledge graph service (NetworkX)
+│   └── seed_graph.json        # Initial graph seed data
 │
 ├── graphs/
 │   └── research_graph.py       # LangGraph workflow definition
 │
 └── ui/
     ├── components.py           # Reusable UI components
+    ├── components_thinking.py   # Gemini-style thinking display
     └── pages/
         ├── home.py
         ├── team_setup.py
@@ -133,15 +156,26 @@ research_lab/
 │  │  ┌─────┐ ┌─────┐     │  │  ┌─────────┐ ┌─────────────┐  │   │
 │  │  │AI/ML│ │Phys │ ... │  │  │Lit Rev  │ │Fact Checker │  │   │
 │  │  └─────┘ └─────┘     │  │  └─────────┘ └─────────────┘  │   │
-│  └───────────────────────┘  └───────────────────────────────┘   │
+│  └───────────────────────┘  │  ┌─────────┐ ┌─────────────┐  │   │
+│                              │  │Ontologist│ │Scientist I/II│ │   │
+│                              │  │Critic    │ │Planner      │ │   │
+│                              │  │Novelty   │ │Hierarchical │ │   │
+│                              │  └─────────┘ └─────────────┘  │   │
+│                              └───────────────────────────────┘   │
 ├─────────────────────────────────────────────────────────────────┤
 │                      INTELLIGENCE LAYER                         │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
 │  │  RAG System │  │   Memory    │  │      LLM (OpenAI)       │  │
 │  │ (Retrieve-  │  │ Short+Long  │  │   ChatGPT-4o / etc      │  │
-│  │  Reflect-   │  │   Term      │  │                         │  │
+│  │  Reflect-   │  │   Term      │  │   with Key Rotation     │  │
 │  │  Retry)     │  │             │  │                         │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │         Knowledge Graph (NetworkX)                      │    │
+│  │  - Concept nodes & relationships                        │    │
+│  │  - Path sampling (shortest/random walk)                │    │
+│  │  - Entity extraction from papers                        │    │
+│  └─────────────────────────────────────────────────────────┘    │
 ├─────────────────────────────────────────────────────────────────┤
 │                        TOOLS LAYER                              │
 │  ┌─────────┐  ┌──────────────┐  ┌────────┐  ┌─────────────┐    │
@@ -231,7 +265,37 @@ from langgraph.graph import StateGraph, END
 # 4. Checkpoints: State persistence between runs
 ```
 
-### 3.4 RAG (Retrieval-Augmented Generation)
+### 3.4 DeepAgents Integration
+
+**DeepAgents** (from langchain-ai/deepagents) provides advanced agent capabilities:
+
+```python
+from deepagents import create_deep_agent
+from deepagents.backends import FilesystemBackend
+
+# Key features:
+# 1. Filesystem Backend: Agents have persistent workspaces
+# 2. Planning: Agents can create and execute plans
+# 3. Sub-agent Delegation: Agents can delegate to specialized sub-agents
+# 4. Tool Integration: Seamless LangChain tool usage
+```
+
+### 3.5 Knowledge Graph Concepts
+
+**Knowledge Graphs** provide structured concept scaffolding:
+
+```python
+from knowledge_graph import KnowledgeGraphService
+
+# Key concepts:
+# 1. Nodes: Concepts, materials, diseases, methods
+# 2. Edges: Relationships (related_to, treats, uses, etc.)
+# 3. Path Sampling: Shortest path or random walk between concepts
+# 4. Entity Extraction: Automatic extraction from papers
+# 5. Context Generation: Structured prompts from graph paths
+```
+
+### 3.6 RAG (Retrieval-Augmented Generation)
 
 RAG enhances LLM responses with external knowledge:
 
@@ -260,25 +324,34 @@ RAG enhances LLM responses with external knowledge:
 ### File: `config/settings.py`
 
 ```python
+from typing import Literal
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    # Loaded from .env file automatically
+    """Loaded automatically from .env"""
+    
+    # LLM Provider
+    llm_provider: Literal["openai", "gemini"] = "openai"
     
     # OpenAI Configuration
-    openai_api_key: str          # Your API key
-    openai_base_url: str         # Custom endpoint (e.g., Vocareum)
-    openai_model: str = "gpt-4o" # Model to use
+    openai_api_key: str = ""
+    openai_base_url: str = ""
+    openai_model: str = "gpt-3.5-turbo"
+    
+    # Gemini Configuration
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.0-pro"
+    gemini_embedding_model: str = "text-embedding-004"
     
     # Tavily Web Search
-    tavily_api_key: str          # For web search
+    tavily_api_key: str = ""
     
     # ChromaDB
     chroma_persist_directory: str = "./data/chroma_db"
     
     # Memory Settings
-    short_term_memory_size: int = 10   # Conversation turns to keep
-    long_term_memory_threshold: float = 0.7  # Similarity threshold
+    short_term_memory_size: int = 10
+    long_term_memory_threshold: float = 0.7
     
     # Research Tools
     arxiv_max_results: int = 10
@@ -289,10 +362,18 @@ class Settings(BaseSettings):
 ### Environment Variables (.env)
 
 ```bash
-# OpenAI Configuration
-OPENAI_API_KEY=your-api-key-here
-OPENAI_BASE_URL=https://api.openai.com/v1  # or custom endpoint
-OPENAI_MODEL=gpt-4o
+# Select provider
+LLM_PROVIDER=gemini   # or openai
+
+# Gemini Configuration
+GEMINI_API_KEY=key1,key2,key3
+GEMINI_MODEL=gemini-3.0-pro
+GEMINI_EMBEDDING_MODEL=text-embedding-004
+
+# OpenAI Configuration (if LLM_PROVIDER=openai)
+OPENAI_API_KEY=key1,key2,key3
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-3.5-turbo
 
 # Tavily Web Search
 TAVILY_API_KEY=your-tavily-key
@@ -462,12 +543,32 @@ class WorkflowState(TypedDict):
     current_query: ResearchQuery          # Current research query
     team_composition: List[str]           # Selected team members
     domain_results: List[ResearchResult]  # Results from domain agents
-    support_results: List[ResearchResult] # Results from support agents
+    support_results: Dict[str, ResearchResult] # Results from support agents
+    
+    # SciAgents workflow outputs
+    knowledge_context: Dict[str, Any]     # Knowledge graph path and context
+    ontology_blueprint: Dict[str, Any]    # Ontologist JSON output
+    scientist_proposal: Dict[str, Any]    # Scientist I proposal
+    scientist_expansion: Dict[str, Any]   # Scientist II expansion
+    critic_feedback: str                  # Critic assessment
+    planner_plan: Dict[str, Any]          # Planner roadmap
+    novelty_report: Dict[str, Any]       # Novelty checker results
+    hierarchical_sections: Dict[str, Any] # Hierarchical expander output
+    
     research_context: Dict[str, Any]      # Shared context
     final_response: str                   # Synthesized final answer
-    current_phase: str                    # routing/domain/support/synthesis
+    final_papers: List[Paper]             # Final paper list
+    current_phase: str                    # Current workflow phase
+    research_stats: Dict[str, Any]        # Research statistics
+    phase_details: Dict[str, Any]         # Phase-specific details
+    thinking_trail: List[Dict[str, Any]]  # Agent reasoning steps (for UI)
     iteration_count: int                  # Prevent infinite loops
     max_iterations: int                   # Maximum iterations
+    error_message: Optional[str]          # Error handling
+    retry_count: int                      # Retry counter
+    session_id: str                       # Session identifier
+    started_at: str                      # Start timestamp
+    completed_at: Optional[str]           # Completion timestamp
 ```
 
 ---
@@ -759,7 +860,143 @@ class RetrieveReflectRetryRAG:
 
 ---
 
-## 8. Research Tools
+## 8. Knowledge Graph System
+
+### 8.1 Overview
+
+The Knowledge Graph System provides structured concept scaffolding inspired by SciAgents methodology. It uses NetworkX to build and query graphs of scientific concepts, enabling path sampling and structured hypothesis generation.
+
+**File:** `knowledge_graph/service.py`
+
+### 8.2 Knowledge Graph Service
+
+```python
+from knowledge_graph import KnowledgeGraphService, KnowledgeGraphContext
+
+class KnowledgeGraphService:
+    """
+    Builds lightweight knowledge graphs from seed data and documents.
+    
+    Features:
+    - Seed graph loading from JSON
+    - Entity extraction from papers
+    - Path sampling (shortest/random walk)
+    - Context generation for agents
+    """
+    
+    def __init__(self, seed_path: Optional[Path] = None):
+        self.graph = nx.Graph()
+        self._load_seed_graph()
+    
+    def ingest_papers(self, papers: List[Paper]):
+        """
+        Augment the graph with nodes derived from papers.
+        
+        Extracts:
+        - Materials (silk, fibroin, amyloid, etc.)
+        - Medical conditions (syndromes, diseases)
+        - Methods/techniques (molecular dynamics, simulations)
+        - Creates relationships automatically
+        """
+    
+    def map_keywords(self, query: str) -> List[str]:
+        """Map query text to existing graph nodes."""
+    
+    def sample_path(
+        self,
+        query: str,
+        strategy: str = "random",  # "shortest" or "random"
+        max_steps: int = 12
+    ) -> KnowledgeGraphContext:
+        """
+        Sample a subgraph path based on the query.
+        
+        Returns:
+            KnowledgeGraphContext with:
+            - nodes: List of node dictionaries
+            - edges: List of edge dictionaries
+            - path: List of node IDs in path order
+            - summary: Text summary of the path
+            - prompt: Structured prompt for agents
+        """
+```
+
+### 8.3 Knowledge Graph Context
+
+```python
+@dataclass
+class KnowledgeGraphContext:
+    """Container for sampled knowledge graph context."""
+    
+    nodes: List[Dict[str, str]]      # Node data (id, label, description)
+    edges: List[Dict[str, str]]       # Edge data (source, target, relation)
+    path: List[str]                   # Node IDs in path order
+    summary: str                      # Human-readable path summary
+    prompt: str                       # Structured prompt for agents
+```
+
+### 8.4 Entity Extraction
+
+The system automatically extracts entities from papers:
+
+```python
+# Materials extraction patterns
+material_patterns = [
+    r'\b(silk|fibroin|amyloid|fibril|hydrogel|polymer)\w*\b',
+    r'\b(collagen|elastin|keratin|chitin|cellulose)\w*\b',
+]
+
+# Disease/condition patterns
+disease_patterns = [
+    r'\b(syndrome|disease|disorder|pathology)\w*\b',
+    r'\b(Cogan|Alzheimer|Parkinson|diabetes)\w*\b',
+]
+
+# Method/technique patterns
+method_patterns = [
+    r'\b(molecular dynamics|simulation|modeling|therapy)\w*\b',
+]
+```
+
+### 8.5 Path Sampling Strategies
+
+**Shortest Path:**
+- Finds the shortest path between two matched nodes
+- Good for direct concept connections
+- Uses `nx.shortest_path()`
+
+**Random Walk:**
+- Biased random walk toward target neighborhood
+- More exploratory, discovers unexpected connections
+- Configurable `max_steps` (default: 12)
+
+### 8.6 Usage in Workflow
+
+```python
+# In research graph:
+kg_service = KnowledgeGraphService()
+
+# Sample initial path
+kg_context = kg_service.sample_path(query, strategy="random")
+
+# Store in state
+state["knowledge_context"] = {
+    "nodes": kg_context.nodes,
+    "edges": kg_context.edges,
+    "path": kg_context.path,
+    "summary": kg_context.summary
+}
+
+# After domain research, enrich graph
+kg_service.ingest_papers(domain_results.papers)
+
+# Re-sample with enriched graph
+kg_context = kg_service.sample_path(query, strategy="random")
+```
+
+---
+
+## 9. Research Tools
 
 ### 8.1 Tool Architecture
 
@@ -942,13 +1179,24 @@ class ResearchToolkit:
 
 ---
 
-## 9. Agent System
+## 10. Agent System
+
+### 10.1 DeepAgents Integration
+
+All agents are now built using **DeepAgents** (langchain-ai/deepagents), which provides:
+
+- **Filesystem Backend**: Each agent has a persistent workspace directory
+- **Planning Capabilities**: Agents can create and execute multi-step plans
+- **Sub-agent Delegation**: Agents can delegate tasks to specialized sub-agents
+- **Enhanced Tool Usage**: Better integration with LangChain tools
+
+### 10.2 Base Research Agent (Updated)
 
 ### 9.1 Base Research Agent
 
 **File:** `agents/base_agent.py`
 
-The `BaseResearchAgent` is the foundation for all agents:
+The `BaseResearchAgent` is the foundation for all agents, now using DeepAgents:
 
 ```python
 class BaseResearchAgent(ABC):
@@ -1005,8 +1253,35 @@ class BaseResearchAgent(ABC):
             display_name=self.DISPLAY_NAME
         )
         
-        # Build agent executor
-        self._agent_executor = self._build_agent_executor()
+        # Build deep agent executor
+        self._agent_executor = self._build_deep_agent()
+    
+    def _build_deep_agent(self):
+        """Build the Deep Agent with filesystem backend."""
+        from deepagents import create_deep_agent
+        from deepagents.backends import FilesystemBackend
+        
+        # Create workspace directory
+        workspace_dir = os.path.abspath(f"./workspaces/{self.agent_id}")
+        os.makedirs(workspace_dir, exist_ok=True)
+        
+        # Get LLM (with key manager support)
+        if self._key_manager:
+            current_key = self._key_manager.get_current_key()
+            llm = ChatOpenAI(
+                model=settings.openai_model,
+                openai_api_key=current_key,
+                openai_api_base=settings.openai_base_url if settings.openai_base_url else None
+            )
+        else:
+            llm = self._llm
+        
+        return create_deep_agent(
+            model=llm,
+            tools=self._tools,
+            system_prompt=self._get_system_prompt(),
+            backend=FilesystemBackend(root_dir=workspace_dir)
+        )
     
     @abstractmethod
     def _get_system_prompt(self) -> str:
@@ -1039,11 +1314,20 @@ class BaseResearchAgent(ABC):
         # Reflect
         self._state.update_status(AgentStatus.REFLECTING)
         
-        # Execute
+        # Execute (DeepAgents uses messages format)
+        messages = [HumanMessage(content=enhanced_input)]
+        if chat_history:
+            messages = chat_history + messages
+        
         result = await self._agent_executor.ainvoke({
-            "input": enhanced_input,
-            "chat_history": chat_history
+            "messages": messages
         })
+        
+        # Extract output from DeepAgents result
+        output = result["messages"][-1].content
+        
+        # Extract thinking steps for UI display
+        thinking_steps = self._extract_thinking_steps(result["messages"])
         
         # Store in memory
         self._short_term.add_user_message(query.query)
@@ -1124,7 +1408,126 @@ class PhysicsAgent(BaseResearchAgent):
 
 **Similar patterns for:** Biology, Chemistry, Mathematics, Neuroscience, Medicine, Computer Science.
 
-### 9.3 Support Agents
+### 10.3 Support Agents
+
+#### Traditional Support Agents
+
+**Literature Reviewer, Methodology Critic, Fact Checker, Writing Assistant, Cross-Domain Synthesizer** - Same as before, now using DeepAgents.
+
+#### SciAgents-Inspired Workflow Agents
+
+**File:** `agents/support/scientific_workflow.py`
+
+These agents implement the SciAgents methodology for structured hypothesis generation:
+
+**OntologistAgent:**
+```python
+class OntologistAgent(KnowledgeGraphAwareAgent):
+    """
+    Interprets knowledge graph paths and generates structured JSON hypotheses.
+    
+    Output format (JSON):
+    {
+        "hypothesis": "Testable hypothesis",
+        "outcome": "Expected outcomes with metrics",
+        "mechanisms": "Mechanistic explanation",
+        "design_principles": "Design principles",
+        "unexpected_properties": "Predicted unexpected behaviors",
+        "comparison": "State-of-the-art comparison",
+        "novelty": "Novelty statement"
+    }
+    """
+```
+
+**ScientistOneAgent:**
+```python
+class ScientistOneAgent(KnowledgeGraphAwareAgent):
+    """
+    Expands ontology blueprint into rigorous research proposal.
+    
+    Output: 1000+ word structured markdown with:
+    - Formal hypothesis statements
+    - Quantitative outcome metrics
+    - Multi-scale mechanistic framework
+    - Design principles with specific materials
+    - State-of-the-art comparisons
+    """
+```
+
+**ScientistTwoAgent:**
+```python
+class ScientistTwoAgent(KnowledgeGraphAwareAgent):
+    """
+    Provides quantitative depth and actionable protocols.
+    
+    Output: 1200+ word deep dive with:
+    - Material property predictions with error bars
+    - Energy budgets and kinetic parameters
+    - Computational modeling plans
+    - Detailed experimental protocols
+    - Risk assessment
+    """
+```
+
+**CriticAgent:**
+```python
+class CriticAgent(KnowledgeGraphAwareAgent):
+    """
+    Provides brutal honest assessment of proposals.
+    
+    Evaluates:
+    - Logical gaps
+    - Evidence requirements
+    - Ethical/safety constraints
+    - Revision checklists
+    """
+```
+
+**PlannerAgent:**
+```python
+class PlannerAgent(KnowledgeGraphAwareAgent):
+    """
+    Creates actionable research roadmap.
+    
+    Output includes:
+    - Mechanism deep-dives (prioritized list)
+    - Modeling priorities table
+    - Experimental priorities table
+    - DeepAgents-compatible TODO list
+    """
+```
+
+**NoveltyCheckerAgent:**
+```python
+class NoveltyCheckerAgent(KnowledgeGraphAwareAgent):
+    """
+    Assesses novelty by querying Semantic Scholar.
+    
+    Output (JSON):
+    {
+        "score": 0.0-1.0,  # Novelty score
+        "overlapping_papers": [...],  # List of similar papers
+        "summary": "...",  # Assessment summary
+        "recommendations": "..."  # Recommendations
+    }
+    
+    MUST use Semantic Scholar tool to query actual papers.
+    """
+```
+
+**HierarchicalExpanderAgent:**
+```python
+class HierarchicalExpanderAgent(KnowledgeGraphAwareAgent):
+    """
+    Expands research into hierarchical sections before synthesis.
+    
+    Creates:
+    - Mechanism deep-dives
+    - Modeling roadmaps
+    - Experimental roadmaps
+    - Critical appraisal sections
+    """
+```
 
 Support agents have specialized roles:
 
@@ -1234,7 +1637,127 @@ class CrossDomainSynthesizer(BaseResearchAgent):
 
 ---
 
-## 10. Orchestrator
+## 11. API Key Management
+
+### 11.1 Key Manager Overview
+
+**File:** `config/key_manager.py`
+
+The `KeyManager` provides automatic API key rotation with health tracking and intelligent fallback. This is essential when using multiple API keys (e.g., Vocareum keys with limited credits).
+
+### 11.2 Key Manager Features
+
+```python
+from config.key_manager import KeyManager, get_key_manager
+
+class KeyManager:
+    """
+    Manages multiple API keys with automatic rotation.
+    
+    Features:
+    - Automatic rotation on failure
+    - Health tracking (failure count, disabled until)
+    - Intelligent disable duration based on error type
+    - Thread-safe operations
+    """
+    
+    def __init__(self, keys: List[str], base_url: Optional[str] = None, model: str = "gpt-3.5-turbo"):
+        self.keys = [k.strip() for k in keys if k.strip()]
+        self.base_url = base_url
+        self.model = model
+        self.key_health: Dict[str, Dict] = {}  # Tracks key health
+        self.current_index = 0
+```
+
+### 11.3 Key Health Tracking
+
+```python
+# Key health structure:
+{
+    "key": {
+        "failure_count": int,        # Number of failures
+        "failed_at": datetime,       # Last failure time
+        "disabled_until": datetime    # When key becomes available again
+    }
+}
+```
+
+### 11.4 Disable Duration Logic
+
+The system intelligently disables keys based on error type:
+
+```python
+# Rate limit (429): 1 minute
+# Budget/Insufficient credits: 1 hour
+# Authentication (401): 365 days (permanently disabled)
+# Other errors: 5 minutes
+```
+
+### 11.5 Usage in Agents
+
+```python
+# In BaseResearchAgent:
+self._key_manager = get_key_manager()
+
+# When making LLM calls:
+if self._key_manager:
+    current_key = self._key_manager.get_current_key()
+    llm = ChatOpenAI(
+        model=settings.openai_model,
+        openai_api_key=current_key,
+        openai_api_base=settings.openai_base_url
+    )
+
+# On error:
+if is_key_error:
+    await self._key_manager.mark_key_failed(current_key, error_str)
+    # System automatically rotates to next key
+```
+
+### 11.6 Automatic Retry with Key Rotation
+
+The system implements retry logic at multiple levels:
+
+1. **Agent Level**: `BaseResearchAgent.research()` retries with key rotation
+2. **Graph Level**: `_retry_with_key_rotation()` wrapper in research graph
+3. **UI Level**: Automatic retry loop in Streamlit on key errors
+
+### 11.7 Configuration
+
+```python
+# In .env file:
+OPENAI_API_KEY=key1,key2,key3,key4,key5,key6  # Comma-separated
+
+# In app.py:
+from config.key_manager import init_key_manager
+init_key_manager()  # Initialize before creating agents
+```
+
+### 11.8 Key Manager API
+
+```python
+# Get current active key
+current_key = key_manager.get_current_key()
+
+# Get all available keys (not disabled)
+available = key_manager.get_available_keys()
+
+# Mark key as failed
+await key_manager.mark_key_failed(key, error_message)
+
+# Mark key as successful (resets failure count)
+key_manager.mark_key_success(key)
+
+# Reset all keys (re-enable disabled keys)
+key_manager.reset_all_keys()
+
+# Get LLM instance with current key
+llm = await key_manager.get_llm(temperature=0.7, max_tokens=4000)
+```
+
+---
+
+## 12. Orchestrator
 
 ### File: `agents/orchestrator.py`
 
@@ -1338,7 +1861,50 @@ class Orchestrator:
 
 ---
 
-## 11. LangGraph Workflow
+## 13. LangGraph Workflow
+
+### 13.1 Updated Workflow Overview
+
+The research workflow now includes a comprehensive SciAgents-inspired pipeline:
+
+```
+START
+  │
+  ▼
+Knowledge Context (Sample KG path)
+  │
+  ▼
+Ontologist (Generate structured hypothesis JSON)
+  │
+  ▼
+Scientist I (Expand to research proposal)
+  │
+  ▼
+Scientist II (Add quantitative depth & protocols)
+  │
+  ▼
+Critic (Assess and provide feedback)
+  │
+  ▼
+Planner (Create actionable roadmap)
+  │
+  ▼
+Novelty Checker (Query Semantic Scholar for novelty)
+  │
+  ▼
+Hierarchical Expander (Deep-dive sections)
+  │
+  ▼
+Domain Research (Parallel domain agents)
+  │
+  ▼
+Synthesis (Combine all outputs into final paper)
+  │
+  ▼
+END
+```
+
+### 13.2 New Workflow Nodes
 
 ### File: `graphs/research_graph.py`
 
@@ -1385,71 +1951,206 @@ class ResearchGraph:
         return graph
 ```
 
-### Workflow Nodes
+### 13.2 New Workflow Nodes
+
+The workflow now includes SciAgents-inspired nodes:
 
 ```python
-async def _route_node(self, state: WorkflowState) -> WorkflowState:
-    """Routing node - analyze query and decide agents."""
-    state["current_phase"] = "routing"
+async def _knowledge_context_node(self, state: WorkflowState) -> WorkflowState:
+    """Sample knowledge graph path for query."""
+    state["current_phase"] = "knowledge_graph"
     
-    query = state["current_query"]
-    routing = await self.orchestrator.route_query(query)
+    query = state["current_query"].query
+    kg_context = self.kg_service.sample_path(query, strategy="random", max_steps=12)
     
-    state["research_context"]["routing"] = routing.model_dump()
-    state["current_agent"] = routing.domain_agents[0]
+    state["knowledge_context"] = {
+        "nodes": kg_context.nodes,
+        "edges": kg_context.edges,
+        "path": kg_context.path,
+        "summary": kg_context.summary
+    }
     
+    return state
+
+async def _ontologist_node(self, state: WorkflowState) -> WorkflowState:
+    """Generate structured hypothesis from knowledge graph."""
+    state["current_phase"] = "ontologist"
+    
+    kg_context = state["knowledge_context"]
+    query = ResearchQuery(query=kg_context["summary"])
+    
+    result = await self._retry_with_key_rotation(
+        lambda: self.ontologist_agent.research(query),
+        "Ontologist"
+    )
+    
+    # Parse JSON output
+    try:
+        state["ontology_blueprint"] = json.loads(result.summary)
+    except:
+        state["ontology_blueprint"] = {"raw": result.summary}
+    
+    return state
+
+async def _scientist_one_node(self, state: WorkflowState) -> WorkflowState:
+    """Expand ontology into research proposal."""
+    state["current_phase"] = "scientist_one"
+    
+    ontology = state["ontology_blueprint"]
+    query = ResearchQuery(query=f"Expand this ontology: {json.dumps(ontology)}")
+    
+    result = await self._retry_with_key_rotation(
+        lambda: self.scientist_one_agent.research(query),
+        "Scientist I"
+    )
+    
+    state["scientist_proposal"] = {"summary": result.summary}
+    return state
+
+async def _scientist_two_node(self, state: WorkflowState) -> WorkflowState:
+    """Add quantitative depth and protocols."""
+    state["current_phase"] = "scientist_two"
+    
+    proposal = state["scientist_proposal"]
+    query = ResearchQuery(query=f"Add quantitative depth to: {proposal['summary']}")
+    
+    result = await self._retry_with_key_rotation(
+        lambda: self.scientist_two_agent.research(query),
+        "Scientist II"
+    )
+    
+    state["scientist_expansion"] = {"summary": result.summary}
+    return state
+
+async def _critic_node(self, state: WorkflowState) -> WorkflowState:
+    """Critically assess the proposal."""
+    state["current_phase"] = "critic"
+    
+    proposal = state["scientist_proposal"]
+    expansion = state["scientist_expansion"]
+    query = ResearchQuery(query=f"Critically assess:\n{proposal['summary']}\n\n{expansion['summary']}")
+    
+    result = await self._retry_with_key_rotation(
+        lambda: self.critic_agent.research(query),
+        "Critic"
+    )
+    
+    state["critic_feedback"] = result.summary
+    return state
+
+async def _planner_node(self, state: WorkflowState) -> WorkflowState:
+    """Create actionable research roadmap."""
+    state["current_phase"] = "planner"
+    
+    proposal = state["scientist_proposal"]
+    expansion = state["scientist_expansion"]
+    query = ResearchQuery(query=f"Create roadmap for:\n{proposal['summary']}\n\n{expansion['summary']}")
+    
+    result = await self._retry_with_key_rotation(
+        lambda: self.planner_agent.research(query),
+        "Planner"
+    )
+    
+    state["planner_plan"] = {"summary": result.summary}
+    return state
+
+async def _novelty_node(self, state: WorkflowState) -> WorkflowState:
+    """Check novelty using Semantic Scholar."""
+    state["current_phase"] = "novelty"
+    
+    proposal = state["scientist_proposal"]
+    query = ResearchQuery(query=f"Assess novelty of: {proposal['summary']}")
+    
+    result = await self._retry_with_key_rotation(
+        lambda: self.novelty_agent.research(query),
+        "Novelty Checker"
+    )
+    
+    # Parse JSON output
+    try:
+        state["novelty_report"] = json.loads(result.summary)
+    except:
+        state["novelty_report"] = {"raw": result.summary}
+    
+    return state
+
+async def _hierarchical_expander_node(self, state: WorkflowState) -> WorkflowState:
+    """Expand into hierarchical sections."""
+    state["current_phase"] = "hierarchical"
+    
+    # Combine all previous outputs
+    context = self._context_string(state)
+    query = ResearchQuery(query=f"Create hierarchical expansion:\n{context}")
+    
+    result = await self._retry_with_key_rotation(
+        lambda: self.hierarchical_agent.research(query),
+        "Hierarchical Expander"
+    )
+    
+    state["hierarchical_sections"] = {"summary": result.summary}
     return state
 
 async def _domain_research_node(self, state: WorkflowState) -> WorkflowState:
     """Domain research node - parallel agent execution."""
     state["current_phase"] = "domain_research"
     
-    routing = state["research_context"]["routing"]
     query = state["current_query"]
     
     # Execute domain agents in parallel
     tasks = [
-        self.orchestrator._domain_agents[field].research(query)
-        for field in routing["domain_agents"]
+        self._retry_with_key_rotation(
+            lambda: agent.research(query),
+            f"Domain Agent: {field}"
+        )
+        for field, agent in self.domain_agents.items()
     ]
     results = await asyncio.gather(*tasks)
     
     state["domain_results"] = results
-    return state
-
-async def _support_processing_node(self, state: WorkflowState) -> WorkflowState:
-    """Support agents process domain results."""
-    state["current_phase"] = "support"
     
-    domain_results = state["domain_results"]
+    # Ingest papers into knowledge graph
+    all_papers = []
+    for result in results:
+        all_papers.extend(result.papers)
+    self.kg_service.ingest_papers(all_papers)
     
-    # Literature review
-    lit_review = await self.orchestrator._support_agents["literature_reviewer"].process(domain_results)
-    
-    # Fact checking
-    fact_check = await self.orchestrator._support_agents["fact_checker"].verify(domain_results)
-    
-    state["support_results"] = [lit_review, fact_check]
     return state
 
 async def _synthesize_node(self, state: WorkflowState) -> WorkflowState:
-    """Synthesize all results into final response."""
+    """Synthesize all results into publication-quality paper."""
     state["current_phase"] = "synthesis"
     
-    # Combine all results
-    domain_text = "\n\n".join([r.to_markdown() for r in state["domain_results"]])
+    # Combine all outputs
+    workflow_outputs = {
+        "knowledge_context": state.get("knowledge_context", {}),
+        "ontology_blueprint": state.get("ontology_blueprint", {}),
+        "scientist_proposal": state.get("scientist_proposal", {}),
+        "scientist_expansion": state.get("scientist_expansion", {}),
+        "critic_feedback": state.get("critic_feedback", ""),
+        "planner_plan": state.get("planner_plan", {}),
+        "novelty_report": state.get("novelty_report", {}),
+        "hierarchical_sections": state.get("hierarchical_sections", {})
+    }
     
-    llm = ChatOpenAI(...)
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "Synthesize these research findings into a comprehensive response."),
-        ("human", "Query: {query}\n\nFindings:\n{findings}")
-    ])
+    domain_findings = "\n\n".join([r.to_markdown() for r in state["domain_results"]])
     
+    # Use synthesis prompt that incorporates all structured outputs
+    prompt = SYNTHESIS_SYSTEM_PROMPT  # Academic paper format
+    
+    llm = await self._get_llm_with_key_rotation()
     chain = prompt | llm | StrOutputParser()
+    
     state["final_response"] = await chain.ainvoke({
         "query": state["current_query"].query,
-        "findings": domain_text
+        "workflow_outputs": json.dumps(workflow_outputs, indent=2),
+        "domain_findings": domain_findings
     })
+    
+    # Collect all papers
+    all_papers = []
+    for result in state["domain_results"]:
+        all_papers.extend(result.papers)
+    state["final_papers"] = all_papers
     
     return state
 ```
@@ -1506,9 +2207,78 @@ async def _synthesize_node(self, state: WorkflowState) -> WorkflowState:
     └─────────────────────────────────────────────────────────┘
 ```
 
+### 13.3 Key Rotation in Workflow
+
+All agent calls in the workflow are wrapped with `_retry_with_key_rotation()`:
+
+```python
+async def _retry_with_key_rotation(self, agent_call, agent_name: str, max_retries: int = 3):
+    """
+    Retry an agent call with automatic key rotation.
+    
+    - Detects key-related errors (rate limit, budget, auth)
+    - Marks failed keys and rotates to next available
+    - Retries up to max_retries times
+    - Returns result or raises last error
+    """
+```
+
+This ensures the workflow continues even if individual keys fail.
+
 ---
 
-## 12. Streamlit UI
+## 14. Streamlit UI
+
+### 14.1 Modern UI Design
+
+The UI has been completely redesigned with:
+- **Dark theme** with glass-morphism effects
+- **Card-based layouts** for better organization
+- **Gemini-style thinking display** showing agent reasoning
+- **Expandable sections** for all workflow outputs
+- **Research command center** aesthetic
+
+### 14.2 Thinking Display
+
+**File:** `ui/components_thinking.py`
+
+```python
+def render_thinking_display(thinking_steps: List[Dict[str, Any]], agent_name: str = "Research Team"):
+    """
+    Render Gemini-style thinking display.
+    
+    Shows:
+    - Step-by-step reasoning
+    - Tool calls with parameters
+    - Observations and results
+    - Expandable cards for each step
+    """
+```
+
+The thinking trail is extracted from DeepAgents' message history and displayed in an expandable format.
+
+### 14.3 Workflow Output Display
+
+The research session page now displays:
+
+1. **Knowledge Graph Path**: Node count, summary, and path visualization
+2. **Ontologist Blueprint**: Formatted JSON with hypothesis structure
+3. **Scientist I Proposal**: Full markdown proposal (1000+ words)
+4. **Scientist II Expansion**: Quantitative deep dive (1200+ words)
+5. **Critic Assessment**: Critical feedback and requirements
+6. **Planner Roadmap**: Actionable tables and TODO lists
+7. **Novelty Assessment**: Score, overlapping papers, recommendations
+8. **Final Synthesis**: Publication-quality research brief
+
+All sections are expandable and formatted for readability.
+
+### 14.4 Error Handling UI
+
+The UI provides:
+- **Automatic retry** with key rotation on API errors
+- **Key status display**: Shows total keys, available keys, current key, failures
+- **Reset All Keys** button to re-enable disabled keys
+- **Clear error messages** with actionable guidance
 
 ### App Structure
 
@@ -1654,7 +2424,7 @@ def render_research_session_page():
 
 ---
 
-## 13. Data Flow
+## 15. Data Flow
 
 ### Complete Request Flow
 
@@ -1773,7 +2543,7 @@ def render_research_session_page():
 
 ---
 
-## 14. Extending the System
+## 16. Extending the System
 
 ### Adding a New Domain Agent
 
@@ -1871,7 +2641,51 @@ Same pattern as domain agents, but in `agents/support/`.
 
 ---
 
-## 15. Troubleshooting
+## 17. Troubleshooting
+
+### 17.1 API Key Issues
+
+**Error: "Insufficient budget available"**
+
+**Solution:**
+1. Check if you have multiple keys configured in `.env` (comma-separated)
+2. The system will automatically rotate to the next key
+3. If all keys are exhausted, add credits or add more keys
+4. Use "Reset All Keys" button to re-enable disabled keys
+
+**Error: "Rate limit exceeded"**
+
+**Solution:**
+- Keys are automatically disabled for 1 minute on rate limit
+- System rotates to next available key
+- Consider using `gpt-3.5-turbo` instead of `gpt-4o` to reduce costs
+
+### 17.2 Knowledge Graph Issues
+
+**Error: "No path found between nodes"**
+
+**Solution:**
+- The system will return an empty context
+- Ensure papers are being ingested: `kg_service.ingest_papers(papers)`
+- Check `seed_graph.json` has initial nodes
+
+### 17.3 JSON Parsing Issues
+
+**Error: "Failed to parse JSON from Ontologist"**
+
+**Solution:**
+- The system has robust JSON extraction with regex fallbacks
+- If parsing fails, raw output is stored in `{"raw": "..."}`
+- Check agent prompts ensure JSON-only output
+
+### 17.4 DeepAgents Issues
+
+**Error: "Workspace directory not found"**
+
+**Solution:**
+- Workspaces are created automatically in `./workspaces/{agent_id}/`
+- Ensure write permissions in project directory
+- Check `FilesystemBackend` initialization
 
 ### Common Issues
 
@@ -1996,11 +2810,27 @@ Final Response ──▶ Displayed in UI
 You now have a complete understanding of the Research Lab system. Key takeaways:
 
 1. **Modular Design**: Each component is self-contained and reusable
-2. **Type Safety**: Pydantic ensures data consistency
-3. **Intelligent Retrieval**: RAG with reflection improves quality
-4. **Memory**: Both conversation context and persistent learning
-5. **Orchestration**: LangGraph manages complex multi-agent workflows
-6. **Extensibility**: Easy to add new agents, tools, and features
+2. **DeepAgents Integration**: Advanced agent capabilities with filesystem backends
+3. **Knowledge Graph System**: Structured concept scaffolding for hypothesis generation
+4. **SciAgents Workflow**: Rigorous scientific methodology with structured outputs
+5. **API Key Rotation**: Automatic fallback and health tracking
+6. **Type Safety**: Pydantic ensures data consistency
+7. **Intelligent Retrieval**: RAG with reflection improves quality
+8. **Memory**: Both conversation context and persistent learning
+9. **Orchestration**: LangGraph manages complex multi-agent workflows
+10. **Academic Output**: Publication-quality research briefs with proper structure
+11. **Thinking Display**: Gemini-style reasoning trail for transparency
+12. **Extensibility**: Easy to add new agents, tools, and features
+
+## Recent Major Updates
+
+- ✅ **DeepAgents Integration**: All agents now use DeepAgents for advanced capabilities
+- ✅ **Knowledge Graph System**: NetworkX-based concept graphs with path sampling
+- ✅ **SciAgents Workflow**: Ontologist → Scientist I/II → Critic → Planner → Novelty Checker
+- ✅ **API Key Rotation**: Automatic rotation with health tracking
+- ✅ **Thinking Display**: Gemini-style reasoning trail in UI
+- ✅ **Academic Quality**: Publication-quality output with proper citations
+- ✅ **Cost Optimization**: Default model changed to `gpt-3.5-turbo`
 
 Happy researching! 🔬
 

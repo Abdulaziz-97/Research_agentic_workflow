@@ -36,19 +36,31 @@ An AI-powered multi-agent research system that brings together specialized AI sc
 cd research_lab
 pip install -r requirements.txt
 
-# Create .env file with your OpenAI API key
-# OPENAI_API_KEY=your_key_here
+# Create .env file and set your preferred LLM provider (Gemini or OpenAI)
+# Example for Gemini:
+# LLM_PROVIDER=gemini
+# GEMINI_API_KEY=your_key_here
 
 streamlit run app.py
 ```
 
 ## Configuration
 
-Create a `.env` file based on `env.example.txt`:
+Create a `.env` file based on `env.example.txt`. Example for Gemini:
 
 ```
-OPENAI_API_KEY=your_api_key_here
-OPENAI_MODEL=gpt-4o
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=your_gemini_api_key
+GEMINI_MODEL=gemini-3.0-pro
+```
+
+For OpenAI/Vocareum:
+
+```
+LLM_PROVIDER=openai
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_MODEL=gpt-3.5-turbo
+OPENAI_BASE_URL= # optional custom endpoint
 ```
 
 ## License

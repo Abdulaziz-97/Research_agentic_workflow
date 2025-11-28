@@ -4,7 +4,6 @@ from typing import List, Optional, Dict, Any, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
@@ -12,6 +11,7 @@ from .vector_store import VectorStore
 from .embeddings import EmbeddingManager
 from states.agent_state import Paper
 from config.settings import settings
+from config.llm_factory import create_chat_model
 
 
 class RetrievalStatus(str, Enum):
@@ -69,14 +69,11 @@ class RetrieveReflectRetryRAG:
         self.min_documents = min_documents
         
         # Initialize LLM for reflection
-        llm_kwargs = {
-            "model": settings.openai_model,
-            "temperature": 0.1,
-            "openai_api_key": settings.openai_api_key
-        }
-        if settings.openai_base_url:
-            llm_kwargs["openai_api_base"] = settings.openai_base_url
-        self._llm = ChatOpenAI(**llm_kwargs)
+        self._llm = create_chat_model(
+            model=settings.llm_model,
+            temperature=0.1,
+            max_tokens=512
+        )
         
         # Reflection prompt
         self._reflection_prompt = ChatPromptTemplate.from_messages([

@@ -1,0 +1,79 @@
+{
+  "nodes": [
+    {
+      "id": "bio_materials",
+      "label": "Bio-inspired Materials",
+      "description": "Design strategies based on natural systems",
+      "domain": "biology"
+    },
+    {
+      "id": "silk",
+      "label": "Silk Fibroin",
+      "description": "Protein-based fiber with high toughness",
+      "domain": "biology"
+    },
+    {
+      "id": "dandelion_pigments",
+      "label": "Dandelion Pigments",
+      "description": "Plant-derived pigments with optical properties",
+      "domain": "chemistry"
+    },
+    {
+      "id": "structural_coloration",
+      "label": "Structural Coloration",
+      "description": "Optical effects from nanostructures",
+      "domain": "physics"
+    },
+    {
+      "id": "energy_efficiency",
+      "label": "Energy Efficiency",
+      "description": "Low energy processing of materials",
+      "domain": "engineering"
+    },
+    {
+      "id": "graphene",
+      "label": "Graphene Composites",
+      "description": "2D materials with high conductivity",
+      "domain": "materials"
+    },
+    {
+      "id": "amyloid_fibrils",
+      "label": "Amyloid Fibrils",
+      "description": "Protein assemblies with tunable mechanics",
+      "domain": "biology"
+    }
+  ],
+  "edges": [
+    {
+      "source": "bio_materials",
+      "target": "silk",
+      "relation": "includes"
+    },
+    {
+      "source": "silk",
+      "target": "structural_coloration",
+      "relation": "enables"
+    },
+    {
+      "source": "structural_coloration",
+      "target": "dandelion_pigments",
+      "relation": "enhanced_by"
+    },
+    {
+      "source": "dandelion_pigments",
+      "target": "energy_efficiency",
+      "relation": "supports"
+    },
+    {
+      "source": "graphene",
+      "target": "amyloid_fibrils",
+      "relation": "reinforced_by"
+    },
+    {
+      "source": "amyloid_fibrils",
+      "target": "bio_materials",
+      "relation": "inspired_by"
+    }
+  ]
+}
+

@@ -67,7 +67,47 @@ class VectorStore:
             Document ID
         """
         doc_id = doc_id or str(uuid.uuid4())
-        embedding = self.embedding_manager.embed_query(content)
+        
+        try:
+            # Generate embedding - handle errors gracefully
+            embedding = self.embedding_manager.embed_query(content)
+        except Exception as e:
+            # Re-raise with original error message for better debugging
+            error_msg = str(e)
+            
+            # Only check for API-specific errors if using OpenAI
+            if settings.embeddings_provider == "openai":
+                if "401" in error_msg or "invalid_api_key" in error_msg.lower() or "Incorrect API key" in error_msg:
+                    raise Exception(
+                        f"Error code: 401 - Authentication failed.\n"
+                        f"Please check your OPENAI_EMBEDDINGS_API_KEY in .env file.\n"
+                        f"If using Vocareum, make sure OPENAI_EMBEDDINGS_BASE_URL is set to the correct Vocareum endpoint."
+                    )
+                elif "404" in error_msg or "Not Found" in error_msg:
+                    # Provide more specific guidance based on the key type
+                    api_key = settings.openai_embeddings_api_key or settings.openai_api_key
+                    is_vocareum = api_key and api_key.startswith('voc-')
+                    
+                    if is_vocareum:
+                        suggestion = (
+                            f"Vocareum embeddings endpoint not found (404).\n"
+                            f"Make sure OPENAI_EMBEDDINGS_BASE_URL is set to: https://openai.vocareum.com/v1\n"
+                            f"Or verify that your Vocareum account has embeddings API access enabled."
+                        )
+                    else:
+                        suggestion = (
+                            f"Embeddings endpoint not found (404).\n"
+                            f"Check OPENAI_EMBEDDINGS_BASE_URL in .env file.\n"
+                            f"For OpenAI: https://api.openai.com/v1\n"
+                            f"For Vocareum: https://openai.vocareum.com/v1"
+                        )
+                    
+                    raise Exception(f"Error code: 404 - {{'error_msg': 'Not Found. Please check the configuration.'}}\n{suggestion}")
+            
+            # For BGE-M3 or other errors, re-raise with original message
+            raise
+            # Re-raise original error for other cases
+            raise
         
         metadata = metadata or {}
         metadata["added_at"] = datetime.now().isoformat()
@@ -126,25 +166,29 @@ class VectorStore:
         Returns:
             Document ID
         """
-        # Create searchable content
-        content = f"Title: {paper.title}\n"
-        content += f"Authors: {', '.join(paper.authors)}\n"
-        content += f"Abstract: {paper.abstract}"
-        
-        metadata = {
-            "paper_id": paper.id,
-            "title": paper.title,
-            "source": paper.source,
-            "field": paper.field,
-            "url": paper.url,
-            "citations": paper.citations,
-            "doc_type": "paper"
-        }
-        
-        if paper.published_date:
-            metadata["published_date"] = paper.published_date.isoformat()
-        
-        return self.add_document(content, doc_id=paper.id, metadata=metadata)
+        try:
+            # Create searchable content
+            content = f"Title: {paper.title}\n"
+            content += f"Authors: {', '.join(paper.authors) if paper.authors else 'Unknown'}\n"
+            content += f"Abstract: {paper.abstract or 'No abstract available'}"
+            
+            metadata = {
+                "paper_id": paper.id,
+                "title": paper.title,
+                "source": paper.source,
+                "field": paper.field,
+                "url": paper.url or "",
+                "citations": paper.citations or 0,
+                "doc_type": "paper"
+            }
+            
+            if paper.published_date:
+                metadata["published_date"] = paper.published_date.isoformat()
+            
+            return self.add_document(content, doc_id=paper.id, metadata=metadata)
+        except Exception as e:
+            # Re-raise with more context
+            raise Exception(f"Failed to add paper '{paper.title}': {str(e)}")
     
     def search(
         self,

@@ -30,3 +30,7 @@ python-dotenv>=1.0.0
 tenacity>=8.2.0
 tiktoken>=0.7.0
 
+# Embeddings
+FlagEmbedding>=1.2.0
+torch>=2.0.0
+

@@ -15,6 +15,7 @@ from ui.components import (
     DOMAIN_ICONS,
     SUPPORT_AGENT_INFO
 )
+from ui.components_workflow import render_workflow_steps, render_workflow_timeline
 from config.settings import FIELD_DISPLAY_NAMES
 from graphs.research_graph import create_research_graph
 
@@ -161,6 +162,11 @@ def render_research_session_page():
                         if isinstance(result, dict):
                             research_stats = result.get("research_stats", {}) or {}
                         
+                        # Extract node outputs for step-by-step display
+                        node_outputs = {}
+                        if isinstance(result, dict):
+                            node_outputs = result.get("node_outputs", {}) or {}
+                        
                         # Collect all papers
                         all_papers = []
                         for dr in domain_results:
@@ -182,6 +188,7 @@ def render_research_session_page():
                             })
                             st.session_state.messages = messages
                             st.session_state.last_results = dict(result) if result else {}
+                            st.session_state.node_outputs = node_outputs  # Store for display
                             
                             # Add to history
                             history = st.session_state.get("research_history", [])
@@ -244,21 +251,48 @@ def render_research_session_page():
                     </div>
                     """, unsafe_allow_html=True)
                 else:
-                    # For assistant messages, render with full academic formatting
-                    st.markdown("""
-                    <div style='font-size: 0.7rem; color: #606070; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.75rem; margin-top: 1.5rem;'>Research Output</div>
-                    """, unsafe_allow_html=True)
+                    # Show workflow steps and final output in tabs
+                    node_outputs = st.session_state.get("node_outputs", {})
                     
-                    # Stats if available
-                    stats = msg.get("stats", {})
-                    if stats:
-                        render_research_output(msg["content"], stats)
+                    if node_outputs:
+                        # Create tabs for workflow steps and final output
+                        tab1, tab2 = st.tabs(["🔄 Workflow Steps", "📄 Final Output"])
+                        
+                        with tab1:
+                            render_workflow_steps(node_outputs)
+                        
+                        with tab2:
+                            # For assistant messages, render with full academic formatting
+                            st.markdown("""
+                            <div style='font-size: 0.7rem; color: #606070; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.75rem; margin-top: 1.5rem;'>Research Output</div>
+                            """, unsafe_allow_html=True)
+                            
+                            # Stats if available
+                            stats = msg.get("stats", {})
+                            if stats:
+                                render_research_output(msg["content"], stats)
+                            else:
+                                st.markdown(f"""
+                                <div class="research-output">
+                                    {msg["content"]}
+                                </div>
+                                """, unsafe_allow_html=True)
                     else:
-                        st.markdown(f"""
-                        <div class="research-output">
-                            {msg["content"]}
-                        </div>
+                        # No workflow steps available, show output directly
+                        st.markdown("""
+                        <div style='font-size: 0.7rem; color: #606070; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.75rem; margin-top: 1.5rem;'>Research Output</div>
                         """, unsafe_allow_html=True)
+                        
+                        # Stats if available
+                        stats = msg.get("stats", {})
+                        if stats:
+                            render_research_output(msg["content"], stats)
+                        else:
+                            st.markdown(f"""
+                            <div class="research-output">
+                                {msg["content"]}
+                            </div>
+                            """, unsafe_allow_html=True)
     
     with side_col:
         # Research Info Panel

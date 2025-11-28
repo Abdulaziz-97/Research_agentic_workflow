@@ -4,6 +4,7 @@ from typing import List, Optional, Dict, Any, Type
 from abc import ABC, abstractmethod
 from datetime import datetime
 import uuid
+import re
 
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -57,7 +58,14 @@ class BaseResearchAgent(ABC):
             tools: List of LangChain tools
             memory_size: Short-term memory size
         """
-        self.agent_id = agent_id or f"{self.FIELD}_{uuid.uuid4().hex[:8]}"
+        # Use provided agent_id or generate a stable one based on field
+        # This ensures agents of the same field share the same RAG across sessions
+        if agent_id:
+            self.agent_id = agent_id
+        else:
+            # Generate stable ID: field-based (not random) so RAG persists across sessions
+            # Format: "ai_ml_agent", "physics_agent", etc.
+            self.agent_id = f"{self.FIELD}_agent"
         
         # Initialize LLM
         llm_kwargs = {
@@ -84,14 +92,32 @@ class BaseResearchAgent(ABC):
             agent_id=self.agent_id
         )
         
-        # Initialize RAG
+        # Initialize RAG with FIELD-based collection name
+        # This ensures all agents of the same field share the same RAG collection
+        # Papers persist across sessions and are accessible to any agent of that field
+        # Format: "rag_ai_ml", "rag_physics", etc. (not per-agent-instance)
         self._vector_store = VectorStore(
-            collection_name=f"rag_{self.FIELD}_{self.agent_id}"
+            collection_name=f"rag_{self.FIELD}"
         )
         self._rag = RetrieveReflectRetryRAG(
             vector_store=self._vector_store,
             field=self.FIELD
         )
+        
+        # Seed RAG with foundational papers if collection is empty (one-time operation)
+        # Only seed domain agents, not support agents
+        # This provides initial context and improves first-query performance
+        if settings.rag_seed_enabled and self.AGENT_TYPE == "domain":
+            try:
+                from rag.seed_rag import seed_rag_if_empty
+                seed_rag_if_empty(
+                    self._vector_store, 
+                    self.FIELD, 
+                    num_papers=settings.rag_seed_papers_per_field
+                )
+            except Exception as e:
+                # Don't fail agent initialization if seeding fails
+                print(f"Warning: RAG seeding failed for {self.FIELD}: {e}")
         
         # Initialize state
         self._state = AgentState(
@@ -173,8 +199,24 @@ class BaseResearchAgent(ABC):
             # Parse output
             output = result.get("output", "")
             
-            # Extract papers from tool calls if available
+            # Extract papers from tool calls and agent messages
             papers = existing_papers.copy()
+            new_papers = self._extract_papers_from_result(result, output)
+            
+            # Add newly found papers to the list (avoid duplicates)
+            existing_ids = {p.id for p in papers}
+            for paper in new_papers:
+                if paper.id not in existing_ids:
+                    papers.append(paper)
+                    existing_ids.add(paper.id)
+            
+            # Store newly found papers in RAG for future queries
+            if new_papers:
+                try:
+                    self.add_papers_to_rag(new_papers)
+                except Exception as e:
+                    # Log but don't fail if RAG storage fails
+                    print(f"Warning: Failed to add papers to RAG: {e}")
             
             # Store in memory
             self._short_term.add_user_message(query.query)
@@ -289,6 +331,149 @@ class BaseResearchAgent(ABC):
 """)
         
         return "\n".join(input_parts)
+    
+    def _extract_papers_from_result(
+        self, 
+        result: Dict[str, Any], 
+        output: str
+    ) -> List[Paper]:
+        """
+        Extract Paper objects from agent execution result.
+        
+        Attempts to extract papers from:
+        1. Tool call results in agent messages
+        2. Parsed output text (if papers are mentioned)
+        
+        Args:
+            result: Agent executor result dictionary
+            output: Final output text
+            
+        Returns:
+            List of Paper objects found
+        """
+        papers = []
+        
+        # Try to extract from agent messages (tool calls)
+        messages = result.get("messages", [])
+        for msg in messages:
+            # Check if message has tool calls
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                # Tool calls are in the message, but results are in subsequent messages
+                # We'll need to parse the output text for now
+                pass
+            
+            # Check message content for paper information
+            if hasattr(msg, "content") and msg.content:
+                content = str(msg.content)
+                # Look for paper patterns in tool results
+                # Tools return formatted strings like "Found X papers: ..."
+                if "Found" in content and "papers" in content.lower():
+                    # Try to parse papers from formatted tool output
+                    parsed = self._parse_papers_from_text(content)
+                    papers.extend(parsed)
+        
+        # Also try to extract from final output
+        if output:
+            parsed = self._parse_papers_from_text(output)
+            papers.extend(parsed)
+        
+        # Remove duplicates by ID
+        seen_ids = set()
+        unique_papers = []
+        for paper in papers:
+            if paper.id and paper.id not in seen_ids:
+                seen_ids.add(paper.id)
+                unique_papers.append(paper)
+        
+        return unique_papers
+    
+    def _parse_papers_from_text(self, text: str) -> List[Paper]:
+        """
+        Parse Paper objects from formatted text output.
+        
+        Attempts to extract paper information from tool output formats like:
+        - "Found X papers: 1. **Title** Authors: ... URL: ..."
+        - Arxiv/Semantic Scholar formatted outputs
+        
+        Args:
+            text: Text containing paper information
+            
+        Returns:
+            List of Paper objects
+        """
+        papers = []
+        lines = text.split("\n")
+        
+        current_paper = None
+        for i, line in enumerate(lines):
+            line = line.strip()
+            
+            # Look for paper title patterns (numbered lists with bold titles)
+            if line and (line[0].isdigit() or line.startswith("**")):
+                # Extract title
+                title = ""
+                if "**" in line:
+                    # Extract text between ** markers
+                    import re
+                    title_match = re.search(r'\*\*(.+?)\*\*', line)
+                    if title_match:
+                        title = title_match.group(1).strip()
+                elif line[0].isdigit() and "." in line:
+                    # Format: "1. Title" or "1. **Title**"
+                    title_part = line.split(".", 1)[1].strip()
+                    title_match = re.search(r'\*\*(.+?)\*\*', title_part)
+                    if title_match:
+                        title = title_match.group(1).strip()
+                    else:
+                        title = title_part.strip()
+                
+                if title:
+                    # Create new paper
+                    if current_paper:
+                        papers.append(current_paper)
+                    current_paper = Paper(
+                        id=f"{self.FIELD}_{len(papers)}_{hash(title) % 1000000}",
+                        title=title,
+                        authors=[],
+                        abstract="",
+                        url="",
+                        source="unknown",
+                        field=self.FIELD
+                    )
+            
+            # Extract authors
+            if current_paper and "Authors:" in line:
+                authors_text = line.split("Authors:", 1)[1].strip()
+                # Remove "et al." if present
+                authors_text = authors_text.replace("et al.", "").strip()
+                if authors_text:
+                    # Split by comma
+                    authors = [a.strip() for a in authors_text.split(",")]
+                    current_paper.authors = authors
+            
+            # Extract URL
+            if current_paper and ("URL:" in line or "http" in line):
+                url_match = re.search(r'https?://[^\s]+', line)
+                if url_match:
+                    current_paper.url = url_match.group(0)
+            
+            # Extract abstract
+            if current_paper and "Abstract:" in line:
+                abstract_text = line.split("Abstract:", 1)[1].strip()
+                if abstract_text:
+                    current_paper.abstract = abstract_text
+            elif current_paper and current_paper.abstract == "" and line and not any(
+                marker in line for marker in ["Authors:", "URL:", "Field:", "**"]
+            ):
+                # Continuation of abstract
+                if len(line) > 20:
+                    current_paper.abstract += " " + line
+        
+        # Add last paper if exists
+        if current_paper:
+            papers.append(current_paper)
+        
+        return papers
     
     def _extract_insights(self, output: str) -> List[str]:
         """Extract key insights from research output."""

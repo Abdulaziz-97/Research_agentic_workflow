@@ -173,6 +173,22 @@ class ResearchGraph:
             "synthesis": {"status": "pending"},
             "complete": {"status": "pending"}
         }
+        
+        # Store node output
+        if "node_outputs" not in state:
+            state["node_outputs"] = {}
+        team_config = state.get("team_config")
+        team_id = team_config.team_id if team_config and hasattr(team_config, "team_id") else "unknown"
+        state["node_outputs"]["init"] = {
+            "status": "complete",
+            "timestamp": datetime.now().isoformat(),
+            "output": "Workflow initialized. Research session started.",
+            "details": {
+                "team_id": team_id,
+                "domain_agents_count": len(team_config.domain_agents) if team_config else 0
+            }
+        }
+        
         return state
     
     async def _routing_node(self, state: WorkflowState) -> WorkflowState:
@@ -196,6 +212,20 @@ class ResearchGraph:
         
         state["phase_details"]["routing"]["status"] = "complete"
         state["phase_details"]["routing"]["agents_selected"] = routing.domain_agents
+        
+        # Store node output
+        if "node_outputs" not in state:
+            state["node_outputs"] = {}
+        state["node_outputs"]["routing"] = {
+            "status": "complete",
+            "timestamp": datetime.now().isoformat(),
+            "output": f"Query routed to {len(routing.domain_agents)} domain agent(s)",
+            "details": {
+                "selected_agents": [FIELD_DISPLAY_NAMES.get(f, f) for f in routing.domain_agents],
+                "reasoning": routing.reasoning,
+                "parallel": routing.parallel
+            }
+        }
         
         return state
     
@@ -221,6 +251,34 @@ class ResearchGraph:
         
         state["phase_details"]["domain_research"]["status"] = "complete"
         state["phase_details"]["domain_research"]["results_count"] = len(state["domain_results"])
+        
+        # Store node output with detailed agent results
+        if "node_outputs" not in state:
+            state["node_outputs"] = {}
+        
+        agent_summaries = []
+        total_papers = 0
+        for result in state["domain_results"]:
+            field_name = FIELD_DISPLAY_NAMES.get(result.agent_field, result.agent_field)
+            agent_summaries.append({
+                "field": field_name,
+                "summary": result.summary[:200] + "..." if len(result.summary) > 200 else result.summary,
+                "papers_found": len(result.papers),
+                "confidence": result.confidence_score,
+                "insights_count": len(result.insights)
+            })
+            total_papers += len(result.papers)
+        
+        state["node_outputs"]["domain_research"] = {
+            "status": "complete",
+            "timestamp": datetime.now().isoformat(),
+            "output": f"Domain research completed. {len(state['domain_results'])} agent(s) found {total_papers} papers.",
+            "details": {
+                "agents": agent_summaries,
+                "total_papers": total_papers,
+                "results_count": len(state["domain_results"])
+            }
+        }
         
         return state
     
@@ -260,6 +318,19 @@ class ResearchGraph:
         # In a full implementation, each support agent would process domain results
         
         state["phase_details"]["support_review"]["status"] = "complete"
+        
+        # Store node output
+        if "node_outputs" not in state:
+            state["node_outputs"] = {}
+        state["node_outputs"]["support_review"] = {
+            "status": "complete",
+            "timestamp": datetime.now().isoformat(),
+            "output": "Support review completed. Findings ready for synthesis.",
+            "details": {
+                "note": "Support agent capabilities integrated into synthesis phase"
+            }
+        }
+        
         return state
     
     async def _synthesis_node(self, state: WorkflowState) -> WorkflowState:
@@ -350,6 +421,20 @@ class ResearchGraph:
         
         state["phase_details"]["synthesis"]["status"] = "complete"
         
+        # Store node output
+        if "node_outputs" not in state:
+            state["node_outputs"] = {}
+        state["node_outputs"]["synthesis"] = {
+            "status": "complete",
+            "timestamp": datetime.now().isoformat(),
+            "output": f"Synthesis completed. Generated {len(state['final_response'])} character research brief.",
+            "details": {
+                "response_length": len(state["final_response"]),
+                "domains_synthesized": active_domains,
+                "papers_referenced": len(all_papers)
+            }
+        }
+        
         return state
     
     async def _complete_node(self, state: WorkflowState) -> WorkflowState:
@@ -376,6 +461,21 @@ class ResearchGraph:
         
         if state["final_response"]:
             state["messages"].append(AIMessage(content=state["final_response"]))
+        
+        # Store node output
+        if "node_outputs" not in state:
+            state["node_outputs"] = {}
+        state["node_outputs"]["complete"] = {
+            "status": "complete",
+            "timestamp": datetime.now().isoformat(),
+            "output": f"Workflow completed successfully. Total execution time: {state['research_stats'].get('execution_time', 'Unknown')}",
+            "details": {
+                "total_papers": state["research_stats"].get("total_papers", 0),
+                "domains_consulted": state["research_stats"].get("domains_consulted", 0),
+                "avg_confidence": state["research_stats"].get("avg_confidence", 0),
+                "execution_time": state["research_stats"].get("execution_time", "Unknown")
+            }
+        }
         
         return state
     

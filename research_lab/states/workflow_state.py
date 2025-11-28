@@ -57,6 +57,9 @@ class WorkflowState(TypedDict, total=False):
     research_stats: Dict[str, Any]
     phase_details: Dict[str, Any]
     
+    # Node outputs for step-by-step display
+    node_outputs: Dict[str, Dict[str, Any]]  # {node_name: {output, timestamp, status}}
+    
     # Error handling
     error_message: Optional[str]
     retry_count: int
@@ -87,6 +90,7 @@ def create_initial_state(
         "final_papers": [],
         "research_stats": {},
         "phase_details": {},
+        "node_outputs": {},
         "error_message": None,
         "retry_count": 0,
         "session_id": session_id,

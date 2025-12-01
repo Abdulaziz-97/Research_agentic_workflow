@@ -3,16 +3,26 @@
 from typing import List, Optional, Dict, Any, Tuple
 from dataclasses import dataclass
 from enum import Enum
+import logging
 
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
+from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
+from pydantic import BaseModel, Field
 
 from .vector_store import VectorStore
 from .embeddings import EmbeddingManager
 from states.agent_state import Paper
 from config.settings import settings
+from config.logging_config import setup_logging
+from prompts.rag_prompts import (
+    REFLECTION_SYSTEM_PROMPT, 
+    REFLECTION_USER_TEMPLATE,
+    REFORMULATION_SYSTEM_PROMPT,
+    REFORMULATION_USER_TEMPLATE
+)
 
+logger = logging.getLogger(__name__)
 
 class RetrievalStatus(str, Enum):
     """Status of a retrieval attempt."""
@@ -21,6 +31,11 @@ class RetrievalStatus(str, Enum):
     NO_RESULTS = "no_results"
     ERROR = "error"
 
+class ReflectionResult(BaseModel):
+    """Structured output for reflection."""
+    is_sufficient: bool = Field(..., description="Whether the documents are sufficient")
+    explanation: str = Field(..., description="Explanation of the evaluation")
+    reformulated_query: Optional[str] = Field(None, description="Reformulated query if insufficient")
 
 @dataclass
 class RetrievalResult:
@@ -38,10 +53,6 @@ class RetrievalResult:
 class RetrieveReflectRetryRAG:
     """
     RAG system implementing Retrieve-Reflect-Retry pattern.
-    
-    1. Retrieve: Query the vector store for relevant documents
-    2. Reflect: Evaluate if retrieved context is sufficient
-    3. Retry: If insufficient, reformulate query and try again
     """
     
     def __init__(
@@ -52,21 +63,13 @@ class RetrieveReflectRetryRAG:
         min_confidence: float = 0.6,
         min_documents: int = 2
     ):
-        """
-        Initialize the RAG system.
-        
-        Args:
-            vector_store: Vector store for document retrieval
-            field: Research field for this RAG
-            max_retries: Maximum retry attempts
-            min_confidence: Minimum confidence threshold
-            min_documents: Minimum documents needed
-        """
         self.vector_store = vector_store
         self.field = field
         self.max_retries = max_retries
         self.min_confidence = min_confidence
         self.min_documents = min_documents
+        
+        logger.info(f"Initializing RAG for field: {field}")
         
         # Initialize LLM for reflection
         llm_kwargs = {
@@ -78,48 +81,17 @@ class RetrieveReflectRetryRAG:
             llm_kwargs["openai_api_base"] = settings.openai_base_url
         self._llm = ChatOpenAI(**llm_kwargs)
         
-        # Reflection prompt
+        # Reflection Prompt
+        self._reflection_parser = JsonOutputParser(pydantic_object=ReflectionResult)
         self._reflection_prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a research quality assessor. Evaluate if the retrieved documents 
-are sufficient to answer the research query.
-
-Consider:
-1. Relevance: Do the documents directly address the query?
-2. Completeness: Do they cover the key aspects?
-3. Quality: Are they from reliable sources?
-4. Recency: Are they up-to-date for this topic?
-
-Respond with:
-- SUFFICIENT if the documents adequately address the query
-- INSUFFICIENT if more or different documents are needed
-- Then provide a brief explanation and, if insufficient, a reformulated query."""),
-            ("human", """Research Query: {query}
-
-Field: {field}
-
-Retrieved Documents:
-{documents}
-
-Evaluate the sufficiency of these documents for answering the query.""")
+            ("system", REFLECTION_SYSTEM_PROMPT),
+            ("human", REFLECTION_USER_TEMPLATE + "\n\n{format_instructions}")
         ])
         
-        # Query reformulation prompt
+        # Reformulation Prompt
         self._reformulation_prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a research query optimizer. Given a query that didn't retrieve 
-sufficient results, reformulate it to be more effective.
-
-Consider:
-- Using different terminology or synonyms
-- Being more or less specific as needed
-- Adding relevant field-specific keywords
-- Breaking down complex queries
-
-Return only the reformulated query, nothing else."""),
-            ("human", """Original Query: {query}
-Field: {field}
-Previous Attempt Feedback: {feedback}
-
-Reformulate the query:""")
+            ("system", REFORMULATION_SYSTEM_PROMPT),
+            ("human", REFORMULATION_USER_TEMPLATE)
         ])
     
     def retrieve(
@@ -127,34 +99,24 @@ Reformulate the query:""")
         query: str,
         n_results: int = 10
     ) -> RetrievalResult:
-        """
-        Execute the Retrieve-Reflect-Retry cycle.
-        
-        Args:
-            query: Research query
-            n_results: Number of results per attempt
-            
-        Returns:
-            RetrievalResult with final documents and status
-        """
+        """Execute the Retrieve-Reflect-Retry cycle."""
+        logger.info(f"Starting retrieval for: {query}")
         current_query = query
         attempt = 1
         
         while attempt <= self.max_retries:
-            # RETRIEVE phase
+            logger.info(f"Attempt {attempt}/{self.max_retries} with query: {current_query}")
+            
+            # RETRIEVE
             documents = self.vector_store.search(
                 current_query,
                 n_results=n_results
             )
             
-            # Check for no results
             if not documents:
+                logger.warning("No documents found.")
                 if attempt < self.max_retries:
-                    # Try reformulation
-                    current_query = self._reformulate_query(
-                        current_query,
-                        "No documents found"
-                    )
+                    current_query = self._reformulate_query(current_query, "No documents found")
                     attempt += 1
                     continue
                 else:
@@ -163,140 +125,126 @@ Reformulate the query:""")
                         documents=[],
                         papers=[],
                         query=query,
-                        reformulated_query=current_query if current_query != query else None,
-                        attempt=attempt,
-                        confidence=0.0
+                        attempt=attempt
                     )
             
-            # REFLECT phase
-            reflection_result = self._reflect(current_query, documents)
+            # REFLECT
+            reflection = self._reflect(current_query, documents)
             
-            if reflection_result["is_sufficient"]:
-                # Extract papers if available
+            if reflection.is_sufficient:
+                logger.info("Retrieval sufficient.")
                 papers = self._extract_papers(documents)
-                
                 return RetrievalResult(
                     status=RetrievalStatus.SUCCESS,
                     documents=documents,
                     papers=papers,
                     query=query,
-                    reformulated_query=current_query if current_query != query else None,
-                    reflection=reflection_result["explanation"],
+                    reflection=reflection.explanation,
                     attempt=attempt,
-                    confidence=reflection_result["confidence"]
+                    confidence=0.9  # High confidence if sufficient
                 )
             
-            # RETRY phase
+            # RETRY
+            logger.info(f"Retrieval insufficient: {reflection.explanation}")
             if attempt < self.max_retries:
-                current_query = self._reformulate_query(
-                    current_query,
-                    reflection_result["feedback"]
+                current_query = reflection.reformulated_query or self._reformulate_query(
+                    current_query, reflection.explanation
                 )
                 attempt += 1
             else:
-                # Return best effort result
+                # Return best effort
                 papers = self._extract_papers(documents)
-                
                 return RetrievalResult(
                     status=RetrievalStatus.INSUFFICIENT,
                     documents=documents,
                     papers=papers,
                     query=query,
-                    reformulated_query=current_query if current_query != query else None,
-                    reflection=reflection_result["explanation"],
+                    reflection=reflection.explanation,
                     attempt=attempt,
-                    confidence=reflection_result["confidence"]
+                    confidence=0.5
                 )
         
-        # Should not reach here, but just in case
         return RetrievalResult(
             status=RetrievalStatus.ERROR,
             documents=[],
             papers=[],
             query=query,
-            attempt=attempt,
-            confidence=0.0
+            attempt=attempt
         )
     
-    def _reflect(
-        self,
-        query: str,
-        documents: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
-        """
-        Reflect on retrieved documents.
-        
-        Args:
-            query: The search query
-            documents: Retrieved documents
-            
-        Returns:
-            Reflection result with sufficiency assessment
-        """
-        # Format documents for reflection
+    def _reflect(self, query: str, documents: List[Dict[str, Any]]) -> ReflectionResult:
+        """Reflect on retrieved documents."""
         docs_text = "\n\n".join([
-            f"Document {i+1} (similarity: {doc.get('similarity', 0):.2f}):\n{doc['content'][:500]}..."
-            for i, doc in enumerate(documents[:5])  # Top 5 for reflection
+            f"Document {i+1}:\n{doc['content'][:500]}..."
+            for i, doc in enumerate(documents[:5])
         ])
         
-        # Run reflection
-        chain = self._reflection_prompt | self._llm | StrOutputParser()
+        chain = self._reflection_prompt | self._llm | self._reflection_parser
         
-        response = chain.invoke({
-            "query": query,
-            "field": self.field,
-            "documents": docs_text
-        })
-        
-        # Parse response
-        is_sufficient = "SUFFICIENT" in response.upper() and "INSUFFICIENT" not in response.upper()
-        
-        # Calculate confidence based on document similarities
-        avg_similarity = sum(d.get("similarity", 0) for d in documents) / len(documents) if documents else 0
-        doc_count_factor = min(len(documents) / self.min_documents, 1.0)
-        confidence = (avg_similarity * 0.6 + doc_count_factor * 0.4)
-        
-        if not is_sufficient:
-            confidence *= 0.7  # Reduce confidence if reflection says insufficient
-        
-        return {
-            "is_sufficient": is_sufficient,
-            "confidence": confidence,
-            "explanation": response,
-            "feedback": response if not is_sufficient else None
-        }
+        try:
+            response = chain.invoke({
+                "query": query,
+                "field": self.field,
+                "documents": docs_text,
+                "format_instructions": self._reflection_parser.get_format_instructions()
+            })
+            
+            if isinstance(response, dict):
+                return ReflectionResult(**response)
+            return response
+            
+        except Exception as e:
+            logger.error(f"Reflection failed: {e}")
+            # Fallback
+            return ReflectionResult(
+                is_sufficient=True,
+                explanation="Reflection failed, assuming sufficient."
+            )
     
     def _reformulate_query(self, query: str, feedback: str) -> str:
-        """
-        Reformulate a query based on feedback.
-        
-        Args:
-            query: Original query
-            feedback: Feedback on why it was insufficient
-            
-        Returns:
-            Reformulated query
-        """
+        """Reformulate a query based on feedback."""
         chain = self._reformulation_prompt | self._llm | StrOutputParser()
-        
-        return chain.invoke({
-            "query": query,
-            "field": self.field,
-            "feedback": feedback
-        }).strip()
+        try:
+            return chain.invoke({
+                "query": query,
+                "field": self.field,
+                "feedback": feedback
+            }).strip()
+        except Exception as e:
+            logger.error(f"Reformulation failed: {e}")
+            return query
     
     def _extract_papers(self, documents: List[Dict[str, Any]]) -> List[Paper]:
         """Extract Paper objects from documents."""
         papers = []
-        
         for doc in documents:
             metadata = doc.get("metadata", {})
+            
+            # Try to get authors from metadata first
+            authors_str = metadata.get("authors", "")
+            if authors_str and authors_str != "Unknown":
+                authors = [a.strip() for a in authors_str.split(",")]
+            else:
+                # Fallback: try to parse from content
+                content = doc.get("content", "")
+                authors = []
+                if "Authors: " in content:
+                    try:
+                        # content format: Title: ...\nAuthors: ...\nAbstract: ...
+                        parts = content.split("Authors: ")
+                        if len(parts) > 1:
+                            authors_line = parts[1].split("\n")[0]
+                            if authors_line and authors_line != "Unknown":
+                                authors = [a.strip() for a in authors_line.split(",")]
+                    except:
+                        pass
+            
             if metadata.get("doc_type") == "paper":
                 paper = Paper(
                     id=metadata.get("paper_id", doc["id"]),
                     title=metadata.get("title", ""),
-                    authors=[],
-                    abstract=doc["content"].split("Abstract: ")[-1] if "Abstract: " in doc["content"] else doc["content"][:500],
+                    authors=authors,
+                    abstract=doc["content"][:500],
                     url=metadata.get("url", ""),
                     source=metadata.get("source", ""),
                     field=metadata.get("field", self.field),
@@ -304,46 +252,16 @@ Reformulate the query:""")
                     relevance_score=doc.get("similarity", 0.0)
                 )
                 papers.append(paper)
-        
         return papers
     
     def add_papers(self, papers: List[Paper]):
-        """Add papers to the vector store."""
         for paper in papers:
             self.vector_store.add_paper(paper)
     
-    def get_context_for_query(
-        self,
-        query: str,
-        max_tokens: int = 4000
-    ) -> Tuple[str, List[Paper], float]:
-        """
-        Get formatted context for a query.
-        
-        Args:
-            query: Research query
-            max_tokens: Maximum tokens for context
-            
-        Returns:
-            Tuple of (context_string, papers, confidence)
-        """
+    def get_context_for_query(self, query: str) -> Tuple[str, List[Paper], float]:
         result = self.retrieve(query)
-        
         if result.status in [RetrievalStatus.NO_RESULTS, RetrievalStatus.ERROR]:
             return "", [], 0.0
         
-        # Build context string
-        context_parts = []
-        total_chars = 0
-        max_chars = max_tokens * 4  # Approximate chars per token
-        
-        for doc in result.documents:
-            if total_chars + len(doc["content"]) > max_chars:
-                break
-            context_parts.append(doc["content"])
-            total_chars += len(doc["content"])
-        
-        context = "\n\n---\n\n".join(context_parts)
-        
+        context = "\n\n---\n\n".join([doc["content"] for doc in result.documents])
         return context, result.papers, result.confidence
-

@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     bge_m3_model_name: str = Field(default="BAAI/bge-m3", description="BGE-M3 model name from Hugging Face")
     bge_m3_use_fp16: bool = Field(default=True, description="Use FP16 for BGE-M3 (faster, slight performance trade-off)")
     
+    # Gemini Configuration (for URL context tool)
+    gemini_api_key: str = Field(default="", description="Google Gemini API key for url_context tool")
+    
     # Tavily Configuration
     tavily_api_key: str = Field(default="", description="Tavily API key for web search")
     

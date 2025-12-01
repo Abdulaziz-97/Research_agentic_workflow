@@ -212,11 +212,24 @@ class ResearchToolkit:
         from .arxiv_tool import ArxivSearchTool
         from .semantic_scholar import SemanticScholarTool
         from .pubmed_tool import PubMedSearchTool
+        from .pdf_reader import PDFReaderTool
+        from .url_context import URLContextTool
         
         self.arxiv = ArxivSearchTool()
         self.semantic_scholar = SemanticScholarTool()
         self.pubmed = PubMedSearchTool()
         self.web = WebSearchTool()
+        try:
+            self.pdf_reader = PDFReaderTool()
+        except ImportError:
+            # PDF reader not available if PyMuPDF not installed
+            self.pdf_reader = None
+        
+        try:
+            self.url_context = URLContextTool(gemini_api_key=settings.gemini_api_key)
+        except Exception:
+            # URL context tool not available
+            self.url_context = None
     
     def get_tools_for_field(self, field: str) -> List:
         """
@@ -230,8 +243,12 @@ class ResearchToolkit:
         """
         tools = []
         
-        # All fields get web search
+        # All fields get web search, PDF reader, and URL context
         tools.append(self.web.as_langchain_tool())
+        if self.pdf_reader:
+            tools.append(self.pdf_reader.as_langchain_tool())
+        if self.url_context:
+            tools.append(self.url_context.as_langchain_tool())
         
         # Field-specific tools
         if field in ["ai_ml", "physics", "mathematics", "computer_science"]:
@@ -246,9 +263,14 @@ class ResearchToolkit:
     
     def get_all_tools(self) -> List:
         """Get all available tools."""
-        return [
+        tools = [
             self.arxiv.as_langchain_tool(),
             self.semantic_scholar.as_langchain_tool(),
             self.pubmed.as_langchain_tool(),
             self.web.as_langchain_tool()
         ]
+        if self.pdf_reader:
+            tools.append(self.pdf_reader.as_langchain_tool())
+        if self.url_context:
+            tools.append(self.url_context.as_langchain_tool())
+        return tools

@@ -18,6 +18,7 @@ from ui.components import (
 from ui.components_workflow import render_workflow_steps, render_workflow_timeline
 from config.settings import FIELD_DISPLAY_NAMES
 from graphs.research_graph import create_research_graph
+import json
 
 
 def get_or_create_graph():
@@ -27,6 +28,99 @@ def get_or_create_graph():
         if team_config:
             st.session_state.research_graph = create_research_graph(team_config)
     return st.session_state.get("research_graph")
+
+
+def render_checkpoint_approval(checkpoint_type: str, checkpoint_data: Dict[str, Any]):
+    """Render UI for human-in-the-loop checkpoint approval."""
+    st.markdown("---")
+    st.markdown("### ⏸️ Checkpoint: Review Required")
+    
+    if checkpoint_type == "ontology":
+        st.info("**Ontology Generated** - Please review the concept definitions and relationships.")
+        ontology = checkpoint_data.get("ontology", {})
+        
+        with st.expander("📚 View Ontology", expanded=True):
+            definitions = ontology.get("definitions", {})
+            if definitions:
+                st.markdown("#### Concept Definitions:")
+                for concept, definition in definitions.items():
+                    st.markdown(f"**{concept}**: {definition}")
+            
+            relationships = ontology.get("relationships", [])
+            if relationships:
+                st.markdown("#### Relationships:")
+                for rel in relationships:
+                    st.markdown(
+                        f"- **{rel.get('source', '')}** --[{rel.get('relationship', '')}]--> "
+                        f"**{rel.get('target', '')}**: {rel.get('explanation', '')}"
+                    )
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ Approve & Continue", type="primary", use_container_width=True):
+                st.session_state.user_approvals["ontology"] = True
+                st.session_state.checkpoint_pending = None
+                st.rerun()
+        with col2:
+            if st.button("✏️ Edit & Continue", use_container_width=True):
+                # For now, just approve (editing can be added later)
+                st.session_state.user_approvals["ontology"] = True
+                st.session_state.checkpoint_pending = None
+                st.rerun()
+    
+    elif checkpoint_type == "hypothesis":
+        st.info("**Hypothesis Generated** - Please review the research hypothesis.")
+        hypothesis = checkpoint_data.get("hypothesis", {})
+        
+        with st.expander("💡 View Hypothesis", expanded=True):
+            st.json(hypothesis)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ Approve & Continue", type="primary", use_container_width=True):
+                st.session_state.user_approvals["hypothesis"] = True
+                st.session_state.checkpoint_pending = None
+                st.rerun()
+        with col2:
+            if st.button("✏️ Refine & Continue", use_container_width=True):
+                st.session_state.user_approvals["hypothesis"] = True
+                st.session_state.checkpoint_pending = None
+                st.rerun()
+    
+    elif checkpoint_type == "critique":
+        st.info("**Critique Completed** - Please review the critical assessment.")
+        critique = checkpoint_data.get("critique", {})
+        
+        with st.expander("🔍 View Critique", expanded=True):
+            st.markdown(f"**Summary**: {critique.get('summary', 'N/A')}")
+            
+            st.markdown("#### Strengths:")
+            for strength in critique.get("critical_review", {}).get("strengths", []):
+                st.markdown(f"- {strength}")
+            
+            st.markdown("#### Weaknesses:")
+            for weakness in critique.get("critical_review", {}).get("weaknesses", []):
+                st.markdown(f"- {weakness}")
+            
+            novelty = critique.get("novelty_rating", {})
+            feasibility = critique.get("feasibility_rating", {})
+            st.metric("Novelty Score", f"{novelty.get('score', 0)}/10")
+            st.metric("Feasibility Score", f"{feasibility.get('score', 0)}/10")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ Accept & Continue", type="primary", use_container_width=True):
+                st.session_state.user_approvals["critique"] = True
+                st.session_state.checkpoint_pending = None
+                st.rerun()
+        with col2:
+            if st.button("🔄 Request Revision", use_container_width=True):
+                # For now, just approve (revision can trigger re-critique)
+                st.session_state.user_approvals["critique"] = True
+                st.session_state.checkpoint_pending = None
+                st.rerun()
+    
+    st.markdown("---")
 
 
 def render_active_team_bar():
@@ -94,6 +188,36 @@ def render_research_session_page():
         # Query input section
         query = render_query_input()
         
+        # Workflow mode toggle
+        st.markdown("<div style='height: 0.5rem'></div>", unsafe_allow_html=True)
+        mode_col1, mode_col2 = st.columns([1, 3])
+        with mode_col1:
+            st.markdown("<span style='font-size: 0.85rem; color: #a0a0b0;'>Workflow Mode:</span>", unsafe_allow_html=True)
+        with mode_col2:
+            # Initialize workflow_mode in session state if not present (before widget creation)
+            if "workflow_mode" not in st.session_state:
+                st.session_state.workflow_mode = "structured"
+            
+            # Get current mode for index
+            current_mode = st.session_state.get("workflow_mode", "structured")
+            current_index = 0 if current_mode == "structured" else 1
+            
+            # Create radio button - Streamlit will automatically update st.session_state.workflow_mode
+            # when user changes selection, so we just use the return value
+            workflow_mode = st.radio(
+                "Workflow Mode Selection",  # Label for accessibility
+                ["structured", "automated"],
+                format_func=lambda x: "📋 Structured (Reliable)" if x == "structured" else "🤖 Automated (Exploratory)",
+                horizontal=True,
+                key="workflow_mode",  # Streamlit manages this automatically
+                index=current_index,
+                label_visibility="hidden"  # Hide label visually but keep for accessibility
+            )
+            # Note: workflow_mode variable contains the selected value
+            # st.session_state.workflow_mode is automatically updated by Streamlit
+        
+        st.markdown("<div style='height: 0.5rem'></div>", unsafe_allow_html=True)
+        
         col1, col2, col3 = st.columns([2, 1, 1])
         with col1:
             submit = st.button("🔬  Begin Research Investigation", type="primary", use_container_width=True)
@@ -121,6 +245,11 @@ def render_research_session_page():
         
         st.markdown("<div style='height: 1.5rem'></div>", unsafe_allow_html=True)
         
+        # Checkpoint approval UI (if checkpoint is pending)
+        checkpoint_pending = st.session_state.get("checkpoint_pending")
+        if checkpoint_pending:
+            render_checkpoint_approval(checkpoint_pending, st.session_state.get("checkpoint_data", {}))
+        
         # Research execution
         if submit and query.strip():
             # Add to messages
@@ -139,11 +268,21 @@ def render_research_session_page():
                     graph = get_or_create_graph()
                     
                     if graph:
-                        st.write("Routing query to domain experts...")
-                        st.write("Searching academic databases...")
+                        # Get workflow mode from session state (set by radio button)
+                        workflow_mode = st.session_state.get("workflow_mode", "structured")
+                        if workflow_mode == "automated":
+                            st.write("Building knowledge graph from RAG papers...")
+                            st.write("Sampling graph path for hypothesis generation...")
+                        else:
+                            st.write("Routing query to domain experts...")
+                            st.write("Searching academic databases...")
                         
                         # Run the research
-                        result = graph.run_sync(query, thread_id=f"session_{datetime.now().timestamp()}")
+                        result = graph.run_sync(
+                            query, 
+                            thread_id=f"session_{datetime.now().timestamp()}",
+                            workflow_mode=workflow_mode
+                        )
                         
                         st.write("Synthesizing findings...")
                         

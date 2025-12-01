@@ -1,6 +1,13 @@
-# 🔬 Research Lab - Complete System Documentation
+# 🔬 Research Lab – Complete System Documentation (Updated)
 
-## Master Guide to the Multi-Agent Research System
+## Master Guide to the Multi‑Agent, Knowledge‑Graph‑Driven Research System
+
+> This document describes the **current** production architecture, including:
+> - Dual workflow modes (Structured vs Automated)
+> - Knowledge Graph + Ontologist + Hypothesis workflow (SciAgents‑style)
+> - New tools (`url_context`, PDF reader, Wikipedia API)
+> - BGE‑M3 local embeddings + OpenAI/DeepSeek chat models
+> - Human‑in‑the‑loop checkpoints in the Streamlit UI
 
 ---
 
@@ -12,15 +19,17 @@
 4. [Configuration & Settings](#4-configuration--settings)
 5. [State Management (Pydantic Models)](#5-state-management-pydantic-models)
 6. [Memory Systems](#6-memory-systems)
-7. [RAG System (Retrieve-Reflect-Retry)](#7-rag-system-retrieve-reflect-retry)
-8. [Research Tools](#8-research-tools)
-9. [Agent System](#9-agent-system)
-10. [Orchestrator](#10-orchestrator)
-11. [LangGraph Workflow](#11-langgraph-workflow)
-12. [Streamlit UI](#12-streamlit-ui)
-13. [Data Flow](#13-data-flow)
-14. [Extending the System](#14-extending-the-system)
-15. [Troubleshooting](#15-troubleshooting)
+7. [RAG System & Embeddings](#7-rag-system--embeddings)
+8. [Knowledge Graph & Ontology Workflow](#8-knowledge-graph--ontology-workflow)
+9. [Hypothesis Generation & Refinement](#9-hypothesis-generation--refinement)
+10. [Research Tools (Arxiv, URL Context, PDF, etc.)](#10-research-tools-arxiv-url-context-pdf-etc)
+11. [Agent System](#11-agent-system)
+12. [Orchestrator](#12-orchestrator)
+13. [LangGraph Workflows (Structured vs Automated)](#13-langgraph-workflows-structured-vs-automated)
+14. [Streamlit UI & Human‑in‑the‑Loop Checkpoints](#14-streamlit-ui--human-in-the-loop-checkpoints)
+15. [Data Flow](#15-data-flow)
+16. [Extending the System](#16-extending-the-system)
+17. [Troubleshooting & Diagnostics](#17-troubleshooting--diagnostics)
 
 ---
 
@@ -28,58 +37,80 @@
 
 ### What is the Research Lab?
 
-The Research Lab is a **multi-agent AI system** that simulates a coalition of research scientists. It uses:
+The Research Lab is a **multi‑agent AI research environment** that simulates a team of domain experts and support scientists. It can:
 
-- **LangChain** for LLM interactions and tool management
-- **LangGraph** for orchestrating multi-agent workflows
-- **ChromaDB** for vector storage and semantic search
-- **Pydantic** for type-safe state management
-- **Streamlit** for the user interface
+- Search and read **papers, URLs, and PDFs**
+- Build a **dynamic knowledge graph** from query‑relevant papers
+- Generate **structured hypotheses** and **research roadmaps**
+- Run in either:
+  - **Structured mode** – classic multi‑agent literature review and synthesis
+  - **Automated mode** – SciAgents‑style hypothesis discovery and refinement
 
-### Key Capabilities
+### Core Technologies
+
+- **LLM / Chat**: `ChatOpenAI` wrapper, typically configured for **DeepSeek** via `OPENAI_BASE_URL=https://api.deepseek.com`
+- **Embeddings**: 
+  - **Default**: `BGE‑M3` (local, via `FlagEmbedding`, free, high quality)
+  - Optional: OpenAI embeddings via API
+- **Vector DB**: `ChromaDB` for paper storage, RAG, and long‑term memory
+- **Workflow**: `LangGraph` for agent orchestration and branching
+- **Agents**: Domain and support agents built on `LangChain`
+- **UI**: `Streamlit` multi‑page app with workflow visualization
+- **Knowledge Graph**: `networkx` graph built from **query‑relevant papers**
+
+### Key Capabilities (Current System)
 
 | Capability | Description |
-|------------|-------------|
-| **Multi-Domain Research** | 8 specialized agents for different scientific fields |
-| **Paper Search** | Arxiv, Semantic Scholar, PubMed, Tavily web search |
-| **RAG System** | Retrieve-Reflect-Retry pattern for intelligent retrieval |
-| **Memory** | Short-term (conversation) + Long-term (persistent) |
-| **Collaboration** | Agents work together, synthesizing cross-domain insights |
+|-----------|-------------|
+| **Multi‑Domain Research** | 8 domain agents (AI/ML, Physics, Biology, Chemistry, Mathematics, Neuroscience, Medicine, CS) |
+| **Support Agents** | Literature Reviewer, Methodology Critic, Fact Checker, Writing Assistant, Cross‑Domain Synthesizer |
+| **RAG** | Retrieve‑Reflect‑Retry across field‑specific Chroma collections |
+| **Knowledge Graph** | Built dynamically from papers found for the current query |
+| **Ontology Generation** | Domain agents collaboratively act as ontologists |
+| **Hypothesis Workflow** | Structured 7‑field hypothesis → expansion → critique → planner → novelty check |
+| **Human‑in‑the‑Loop** | Checkpoints after ontology, hypothesis, and critique |
+| **Tools** | Arxiv, Semantic Scholar, PubMed, Tavily web search, URL context (Gemini + scraping + Wikipedia API), PDF reader |
 
-### Project Structure
+### Updated Project Structure
 
-```
+```text
 research_lab/
 ├── app.py                      # Streamlit entry point
-├── .env                        # Environment variables (API keys)
+├── .env                        # Environment variables (API keys, provider settings)
 ├── requirements.txt            # Python dependencies
 │
 ├── config/
-│   └── settings.py             # Configuration & constants
+│   └── settings.py             # Configuration & constants (OpenAI/DeepSeek, embeddings, Gemini, etc.)
 │
 ├── states/
 │   ├── agent_state.py          # Pydantic models for agents
-│   └── workflow_state.py       # LangGraph state definitions
+│   └── workflow_state.py       # LangGraph workflow state (structured + automated modes)
 │
 ├── memory/
 │   ├── short_term.py           # Conversation buffer memory
 │   └── long_term.py            # Persistent ChromaDB memory
 │
 ├── rag/
-│   ├── embeddings.py           # OpenAI embeddings wrapper
-│   ├── vector_store.py         # ChromaDB vector store
-│   └── retriever.py            # Retrieve-Reflect-Retry logic
+│   ├── embeddings.py           # BGE‑M3 + OpenAI embeddings (singleton cache)
+│   ├── vector_store.py         # ChromaDB vector store wrapper
+│   ├── retriever.py            # Retrieve‑Reflect‑Retry logic
+│   └── seed_rag.py             # Thread‑safe auto‑seeding of foundational papers
 │
 ├── tools/
 │   ├── arxiv_tool.py           # Arxiv paper search
-│   ├── semantic_scholar.py     # Semantic Scholar API
+│   ├── semantic_scholar.py     # Semantic Scholar API wrapper
 │   ├── pubmed_tool.py          # PubMed/NCBI search
-│   └── web_search.py           # Tavily web search
+│   ├── web_search.py           # Tavily web search
+│   ├── url_context.py          # URL content extraction (Gemini url_context + scraping + Wikipedia API)
+│   └── pdf_reader.py           # PDF reading utility (PyMuPDF)
+│
+├── knowledge_graph/
+│   └── service.py              # KnowledgeGraphService (build graph, sample paths, definitions)
 │
 ├── agents/
-│   ├── base_agent.py           # Base class for all agents
-│   ├── orchestrator.py         # Main coordinator
-│   ├── domain/                 # 8 domain-specific agents
+│   ├── base_agent.py           # BaseResearchAgent (LLM, tools, memory, RAG, state)
+│   ├── orchestrator.py         # Main coordinator (routing & synthesis)
+│   ├── domain/                 # 8 domain‑specific agents
 │   │   ├── ai_agent.py
 │   │   ├── physics_agent.py
 │   │   ├── biology_agent.py
@@ -88,57 +119,73 @@ research_lab/
 │   │   ├── neuroscience_agent.py
 │   │   ├── medicine_agent.py
 │   │   └── cs_agent.py
-│   └── support/                # 5 support agents
+│   └── support/                # Support + new SciAgents‑style agents
 │       ├── literature_reviewer.py
 │       ├── methodology_critic.py
 │       ├── fact_checker.py
 │       ├── writing_assistant.py
-│       └── cross_domain_synthesizer.py
+│       ├── cross_domain_synthesizer.py
+│       ├── ontologist.py               # Graph path → ontology
+│       ├── hypothesis_generator.py     # Scientist_1 (7‑field JSON)
+│       ├── hypothesis_expander.py      # Scientist_2 (expansion, modeling, simulation)
+│       ├── hypothesis_critic.py        # Critic (novelty/feasibility scoring)
+│       ├── research_planner.py         # Planner (roadmap)
+│       └── novelty_checker.py          # Novelty checker (Semantic Scholar)
 │
 ├── graphs/
-│   └── research_graph.py       # LangGraph workflow definition
+│   └── research_graph.py       # LangGraph workflow (both modes + checkpoints)
 │
-└── ui/
-    ├── components.py           # Reusable UI components
-    └── pages/
-        ├── home.py
-        ├── team_setup.py
-        └── research_session.py
+├── ui/
+│   ├── components.py           # Reusable UI components
+│   └── pages/
+│       ├── home.py
+│       ├── team_setup.py
+│       └── research_session.py # Workflow mode toggle, step display, checkpoints
+│
+├── WORKFLOW_GRAPH_DIAGRAM.md        # Updated workflow diagrams & node descriptions
+├── KNOWLEDGE_GRAPH_COMPREHENSIVE_GUIDE.md
+├── KNOWLEDGE_GRAPH_IMPROVEMENTS.md
+├── WORKFLOW_ERRORS_FIXED.md
+├── ENV_FIX_GUIDE.md
+└── DIAGNOSIS_REPORT.md              # Documented issues & fixes
 ```
 
 ---
 
 ## 2. Architecture Deep Dive
 
-### Layered Architecture
+### Layered Architecture (Updated)
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                      PRESENTATION LAYER                         │
-│                      (Streamlit UI)                             │
+│                       (Streamlit UI)                            │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
 │  │    Home     │  │ Team Setup  │  │   Research Session      │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
 ├─────────────────────────────────────────────────────────────────┤
 │                      ORCHESTRATION LAYER                        │
-│                      (LangGraph + Orchestrator)                 │
+│                  (LangGraph + Orchestrator + Modes)             │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │  ResearchGraph: Nodes → Edges → Conditional Routing     │    │
-│  │  Orchestrator: Task analysis, agent selection, synthesis│    │
+│  │ ResearchGraph                                           │    │
+│  │  - Structured Mode: classic RAG → synthesis             │    │
+│  │  - Automated Mode: RAG → KG → Ontology → Hypothesis     │    │
+│  │ Orchestrator: routing + synthesis                       │    │
 │  └─────────────────────────────────────────────────────────┘    │
 ├─────────────────────────────────────────────────────────────────┤
 │                        AGENT LAYER                              │
-│  ┌───────────────────────┐  ┌───────────────────────────────┐   │
-│  │    Domain Agents      │  │      Support Agents           │   │
-│  │  ┌─────┐ ┌─────┐     │  │  ┌─────────┐ ┌─────────────┐  │   │
-│  │  │AI/ML│ │Phys │ ... │  │  │Lit Rev  │ │Fact Checker │  │   │
-│  │  └─────┘ └─────┘     │  │  └─────────┘ └─────────────┘  │   │
-│  └───────────────────────┘  └───────────────────────────────┘   │
+│  ┌───────────────────────┐  ┌────────────────────────────────┐  │
+│  │    Domain Agents      │  │     Support + SciAgents‑Style  │  │
+│  │  ┌─────┐ ┌─────┐     │  │  ┌─────────┐ ┌─────────────┐   │  │
+│  │  │AI/ML│ │Phys │ ... │  │  │Lit Rev  │ │Fact Checker │   │  │
+│  │  └─────┘ └─────┘     │  │  └─────────┘ └─────────────┘   │  │
+│  │                      │  │  Ontologist, Hypothesis_*      │  │
+│  └───────────────────────┘  └────────────────────────────────┘  │
 ├─────────────────────────────────────────────────────────────────┤
 │                      INTELLIGENCE LAYER                         │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │  RAG System │  │   Memory    │  │      LLM (OpenAI)       │  │
-│  │ (Retrieve-  │  │ Short+Long  │  │   ChatGPT-4o / etc      │  │
+│  │  RAG System │  │   Memory    │  │    Chat LLM (DeepSeek)  │  │
+│  │ (Retrieve-  │  │ Short+Long  │  │ or OpenAI via ChatOpenAI│  │
 │  │  Reflect-   │  │   Term      │  │                         │  │
 │  │  Retry)     │  │             │  │                         │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
@@ -147,18 +194,21 @@ research_lab/
 │  ┌─────────┐  ┌──────────────┐  ┌────────┐  ┌─────────────┐    │
 │  │  Arxiv  │  │Semantic      │  │ PubMed │  │   Tavily    │    │
 │  │         │  │Scholar       │  │        │  │ Web Search  │    │
-│  └─────────┘  └──────────────┘  └────────┘  └─────────────┘    │
+│  ├─────────┴──────────────────────────────────────────────┤    │
+│  │ URL Context (Gemini url_context + scraping + wiki API) │    │
+│  │ PDF Reader (PyMuPDF)                                   │    │
+│  └────────────────────────────────────────────────────────┘    │
 ├─────────────────────────────────────────────────────────────────┤
 │                       STORAGE LAYER                             │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │              ChromaDB (Vector Database)                  │    │
-│  │  - Paper embeddings    - Memory embeddings               │    │
-│  │  - Field-specific collections                            │    │
+│  │             ChromaDB (Vector Database)                   │    │
+│  │  - Field‑specific RAG collections                        │    │
+│  │  - Long‑term memory collections per agent                │    │
 │  └─────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Agent Hierarchy
+### Agent Hierarchy (Conceptual)
 
 ```
                          ┌──────────────────┐
@@ -231,7 +281,7 @@ from langgraph.graph import StateGraph, END
 # 4. Checkpoints: State persistence between runs
 ```
 
-### 3.4 RAG (Retrieval-Augmented Generation)
+### 3.4 RAG (Retrieval‑Augmented Generation)
 
 RAG enhances LLM responses with external knowledge:
 
@@ -255,50 +305,70 @@ RAG enhances LLM responses with external knowledge:
 
 ---
 
-## 4. Configuration & Settings
+## 4. Configuration & Settings (Updated)
 
 ### File: `config/settings.py`
 
+> **Note:** The real `settings.py` includes more fields than shown here (embeddings, Gemini, etc.). This section summarizes the most important ones.
+
 ```python
 from pydantic_settings import BaseSettings
+from typing import Literal
 
 class Settings(BaseSettings):
-    # Loaded from .env file automatically
+    # --- Chat LLM configuration (OpenAI / DeepSeek via ChatOpenAI wrapper) ---
+    openai_api_key: str = ""             # Your DeepSeek/OpenAI API key
+    openai_base_url: str = ""            # e.g. https://api.deepseek.com
+    openai_model: str = "deepseek-reasoner"
     
-    # OpenAI Configuration
-    openai_api_key: str          # Your API key
-    openai_base_url: str         # Custom endpoint (e.g., Vocareum)
-    openai_model: str = "gpt-4o" # Model to use
+    # --- Embeddings configuration ---
+    embeddings_provider: Literal["bge-m3", "openai"] = "bge-m3"
+    openai_embeddings_api_key: str = ""  # Only if embeddings_provider='openai'
+    openai_embeddings_base_url: str = "https://api.openai.com/v1"
+    openai_embeddings_model: str = "text-embedding-3-small"
+    bge_m3_model_name: str = "BAAI/bge-m3"
+    bge_m3_use_fp16: bool = True
     
-    # Tavily Web Search
-    tavily_api_key: str          # For web search
+    # --- Gemini / URL context ---
+    gemini_api_key: str = ""             # For optional Gemini url_context integration
     
-    # ChromaDB
+    # --- Tavily Web Search ---
+    tavily_api_key: str = ""
+    
+    # --- ChromaDB ---
     chroma_persist_directory: str = "./data/chroma_db"
+    chroma_collection_prefix: str = "research_lab"
     
-    # Memory Settings
-    short_term_memory_size: int = 10   # Conversation turns to keep
-    long_term_memory_threshold: float = 0.7  # Similarity threshold
+    # --- Memory Settings ---
+    short_term_memory_size: int = 10
+    long_term_memory_threshold: float = 0.7
     
-    # Research Tools
+    # --- Research Tools ---
     arxiv_max_results: int = 10
     semantic_scholar_max_results: int = 10
     pubmed_max_results: int = 10
 ```
 
-### Environment Variables (.env)
+### Environment Variables (`.env`)
+
+Typical DeepSeek + BGE‑M3 setup:
 
 ```bash
-# OpenAI Configuration
-OPENAI_API_KEY=your-api-key-here
-OPENAI_BASE_URL=https://api.openai.com/v1  # or custom endpoint
-OPENAI_MODEL=gpt-4o
+# Chat LLM (DeepSeek via OpenAI-compatible API)
+OPENAI_API_KEY=sk-your-deepseek-key
+OPENAI_BASE_URL=https://api.deepseek.com
+OPENAI_MODEL=deepseek-reasoner
+
+# Embeddings (local, free)
+EMBEDDINGS_PROVIDER=bge-m3
+# DO NOT set OPENAI_EMBEDDINGS_API_KEY / OPENAI_EMBEDDINGS_BASE_URL when using BGE-M3
 
 # Tavily Web Search
 TAVILY_API_KEY=your-tavily-key
 
 # ChromaDB
 CHROMA_PERSIST_DIRECTORY=./data/chroma_db
+CHROMA_COLLECTION_PREFIX=research_lab
 ```
 
 ### Research Fields Configuration
@@ -448,26 +518,60 @@ class TeamConfiguration(BaseModel):
 
 ### File: `states/workflow_state.py`
 
-LangGraph requires TypedDict for state:
+`WorkflowState` is a `TypedDict` that captures **both** the classic structured workflow and the new automated SciAgents‑style pipeline.
 
 ```python
-from typing import TypedDict, List, Dict, Any
+from typing import TypedDict, List, Dict, Any, Optional, Literal, Annotated
 from langchain_core.messages import BaseMessage
 
-class WorkflowState(TypedDict):
-    """State that flows through the LangGraph workflow."""
+class WorkflowState(TypedDict, total=False):
+    """Main state for the LangGraph research workflow."""
     
-    messages: List[BaseMessage]           # Conversation history
-    current_agent: str                    # Currently active agent
-    current_query: ResearchQuery          # Current research query
-    team_composition: List[str]           # Selected team members
-    domain_results: List[ResearchResult]  # Results from domain agents
-    support_results: List[ResearchResult] # Results from support agents
-    research_context: Dict[str, Any]      # Shared context
-    final_response: str                   # Synthesized final answer
-    current_phase: str                    # routing/domain/support/synthesis
-    iteration_count: int                  # Prevent infinite loops
-    max_iterations: int                   # Maximum iterations
+    # Messages (LangGraph add_messages aggregation)
+    messages: Annotated[List[BaseMessage], add_messages]
+    
+    # Query + team
+    current_query: Optional[ResearchQuery]
+    team_config: Optional[TeamConfiguration]
+    
+    # Agent states & results
+    agent_states: Dict[str, AgentState]
+    domain_results: List[ResearchResult]
+    support_results: Dict[str, ResearchResult]
+    
+    # Workflow control
+    current_phase: str
+    active_domain_agents: List[str]
+    active_support_agents: List[str]
+    routing_reasoning: str
+    
+    # Final output
+    final_response: Optional[str]
+    final_papers: List[Paper]
+    
+    # Research stats & per‑phase details
+    research_stats: Dict[str, Any]
+    phase_details: Dict[str, Any]
+    
+    # Node outputs (for Streamlit step‑by‑step display)
+    node_outputs: Dict[str, Dict[str, Any]]
+    
+    # Hypothesis workflow (automated mode)
+    knowledge_graph_path: Optional[Dict[str, Any]]   # Sampled KG path
+    ontology: Optional[Dict[str, Any]]               # Ontology from Ontologist
+    hypothesis: Optional[Dict[str, Any]]             # Initial hypothesis
+    expanded_hypothesis: Optional[Dict[str, Any]]    # Expanded hypothesis
+    critique: Optional[Dict[str, Any]]               # Critique results
+    research_plan: Optional[Dict[str, Any]]          # Planner output
+    novelty_assessment: Optional[Dict[str, Any]]     # Novelty check
+    
+    # Workflow mode
+    workflow_mode: Literal["structured", "automated"]
+    
+    # Human‑in‑the‑loop checkpoints
+    checkpoint_pending: Optional[str]        # e.g. "ontology", "hypothesis", "critique"
+    checkpoint_data: Optional[Dict[str, Any]]
+    user_approvals: Dict[str, bool]
 ```
 
 ---
@@ -588,44 +692,78 @@ User Query ──▶ Check Long-Term Memory ──▶ Relevant memories found?
 
 ---
 
-## 7. RAG System (Retrieve-Reflect-Retry)
+## 7. RAG System & Embeddings
 
-### 7.1 Embeddings
+### 7.1 Embeddings (`rag/embeddings.py`)
 
-**File:** `rag/embeddings.py`
+The embeddings layer now supports:
+
+- **BGE‑M3** (default, local, free)
+- OpenAI embeddings (optional, API‑based)
+- A **singleton cache** so BGE‑M3 only loads **once**, even with many agents.
 
 ```python
-def get_embeddings_model(model: str = "text-embedding-3-small"):
-    """Get OpenAI embeddings with custom base URL support."""
-    kwargs = {
-        "model": model,
-        "openai_api_key": settings.openai_api_key
-    }
-    if settings.openai_base_url:
-        kwargs["openai_api_base"] = settings.openai_base_url
-    return OpenAIEmbeddings(**kwargs)
+class OpenAIEmbeddingsWrapper(BaseEmbeddings):
+    # Wraps langchain_openai OpenAIEmbeddings with base URL support
+    ...
+
+class BGEM3Embeddings(BaseEmbeddings):
+    # Wraps FlagEmbedding BGE-M3 model
+    ...
+
+# Global singleton cache
+_embeddings_cache: dict[str, BaseEmbeddings] = {}
+
+def get_embeddings_model(model: Optional[str] = None) -> BaseEmbeddings:
+    """
+    Get an embeddings model based on settings.embeddings_provider.
+    Uses a singleton pattern so BGE-M3 loads only once.
+    """
+    provider = settings.embeddings_provider
+    
+    if provider == "bge-m3":
+        cache_key = f"bge-m3_{settings.bge_m3_model_name}_{settings.bge_m3_use_fp16}"
+    else:
+        cache_key = f"openai_{model or settings.openai_embeddings_model}"
+    
+    if cache_key in _embeddings_cache:
+        return _embeddings_cache[cache_key]
+    
+    if provider == "bge-m3":
+        embeddings = BGEM3Embeddings(
+            model_name=settings.bge_m3_model_name,
+            use_fp16=settings.bge_m3_use_fp16,
+        )
+    else:
+        embeddings = OpenAIEmbeddingsWrapper(
+            model=model or settings.openai_embeddings_model,
+        )
+    
+    _embeddings_cache[cache_key] = embeddings
+    return embeddings
 
 class EmbeddingManager:
-    """Manages embedding generation."""
+    """Thin wrapper that uses get_embeddings_model()."""
+    
+    def __init__(self, model: Optional[str] = None):
+        self._model = get_embeddings_model(model)
     
     def embed_query(self, text: str) -> List[float]:
-        """Generate embedding for a query."""
-        
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for multiple documents."""
+        return self._model.embed_query(text)
     
-    def similarity(self, emb1: List[float], emb2: List[float]) -> float:
-        """Calculate cosine similarity between embeddings."""
-        # Returns 0-1 score
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        return self._model.embed_documents(texts)
 ```
 
-### 7.2 Vector Store
+### 7.2 Vector Store (`rag/vector_store.py`)
 
 **File:** `rag/vector_store.py`
 
 ```python
 class VectorStore:
-    """ChromaDB wrapper for document storage and retrieval."""
+    """
+    ChromaDB vector store for research documents.
+    """
     
     def __init__(self, collection_name: str):
         self._client = chromadb.PersistentClient(
@@ -636,32 +774,35 @@ class VectorStore:
         )
         self.embedding_manager = EmbeddingManager()
     
-    def add_document(self, content: str, metadata: dict = None) -> str:
-        """Add a single document."""
-        embedding = self.embedding_manager.embed_query(content)
+    def add_document(self, content: str,
+                     doc_id: Optional[str] = None,
+                     metadata: Optional[Dict[str, Any]] = None) -> str:
+        """Add a single document (with robust error handling)."""
+        doc_id = doc_id or str(uuid.uuid4())
+        
+        try:
+            embedding = self.embedding_manager.embed_query(content)
+        except Exception as e:
+            # If using OpenAI embeddings, convert 401/404 into clearer errors
+            error_msg = str(e)
+            if settings.embeddings_provider == "openai":
+                ...
+            # For BGE-M3, re-raise original error
+            raise
+        
+        metadata = metadata or {}
+        metadata["added_at"] = datetime.now().isoformat()
+        
         self._collection.add(
             ids=[doc_id],
             embeddings=[embedding],
             documents=[content],
-            metadatas=[metadata]
+            metadatas=[metadata],
         )
-    
-    def add_paper(self, paper: Paper) -> str:
-        """Add a research paper."""
-        content = f"Title: {paper.title}\nAuthors: {paper.authors}\nAbstract: {paper.abstract}"
-        # ... store with metadata
-    
-    def search(self, query: str, n_results: int = 5) -> List[Dict]:
-        """Semantic search for documents."""
-        query_embedding = self.embedding_manager.embed_query(query)
-        results = self._collection.query(
-            query_embeddings=[query_embedding],
-            n_results=n_results
-        )
-        return self._format_results(results)
+        return doc_id
 ```
 
-### 7.3 Retrieve-Reflect-Retry Pattern
+### 7.3 Retrieve‑Reflect‑Retry Pattern (`rag/retriever.py`)
 
 **File:** `rag/retriever.py`
 
@@ -759,7 +900,198 @@ class RetrieveReflectRetryRAG:
 
 ---
 
-## 8. Research Tools
+## 8. Knowledge Graph & Ontology Workflow
+
+### 8.1 Knowledge Graph Service (`knowledge_graph/service.py`)
+
+The **KnowledgeGraphService** builds a graph **from papers relevant to the current query**, not from a static corpus.
+
+Key ideas:
+
+- **Nodes**: scientific concepts/entities
+- **Edges**: relationships between concepts
+- **Construction**:
+  - Use vector store collection of papers (temporary per session)
+  - For each paper: extract entities + relationships via LLM (with fallback)
+- **Path Sampling**:
+  - Random and shortest path sampling
+  - Used as input to the Ontologist and Hypothesis Generator
+
+```python
+class KnowledgeGraphService:
+    def __init__(self, vector_store: VectorStore, field: Optional[str] = None):
+        self.vector_store = vector_store
+        self.field = field
+        self.graph = nx.MultiDiGraph()
+        self.embedding_manager = EmbeddingManager()
+        self._built = False
+    
+    def build_graph(self, max_papers: Optional[int] = None,
+                    min_entities_per_paper: int = 3) -> Dict[str, Any]:
+        """
+        Build knowledge graph from papers in the vector store.
+        """
+        # reads all docs with doc_type='paper' (optionally filtered by field)
+        ...
+    
+    def sample_path(self, source: Optional[str] = None,
+                    target: Optional[str] = None,
+                    path_type: str = "random",
+                    max_length: int = 10,
+                    random_waypoints: int = 2) -> PathSamplingResult:
+        """
+        Sample a path through the knowledge graph (random or shortest).
+        Returns PathSamplingResult with:
+          - nodes
+          - edges
+          - subgraph JSON
+        """
+        ...
+```
+
+The extraction step uses an LLM prompt that returns:
+
+```json
+{
+  "entities": ["graphene", "silk fibroin", "neural interfaces"],
+  "relationships": [
+    ["graphene", "combined_with", "silk fibroin"],
+    ["graphene-silk composite", "enables", "neural interfaces"]
+  ]
+}
+```
+
+If the LLM fails, a fallback regex‑based extractor finds capitalized phrases as a minimal baseline.
+
+### 8.2 Graph Usage in the Workflow (`graphs/research_graph.py`)
+
+The **knowledge graph node** is only used in **automated** mode:
+
+```python
+async def _knowledge_graph_node(self, state: WorkflowState) -> WorkflowState:
+    state["current_phase"] = "knowledge_graph"
+    
+    # 1. Collect all papers from domain research results
+    all_papers = []
+    for result in state.get("domain_results", []):
+        ...
+    
+    if not all_papers:
+        raise ValueError("No papers found from domain research. Cannot build knowledge graph.")
+    
+    # 2. Build temporary vector store with these papers
+    temp_collection = f"temp_kg_{state['session_id']}"
+    vector_store = VectorStore(collection_name=temp_collection)
+    for paper in all_papers:
+        vector_store.add_paper(paper)
+    
+    # 3. Build graph & sample path
+    kg_service = KnowledgeGraphService(vector_store=vector_store, field=None)
+    stats = kg_service.build_graph(max_papers=len(all_papers))
+    
+    # 4. Use query keywords as source/target seeds when possible
+    ...
+    path_result = kg_service.sample_path(source=source, target=target, ...)
+    
+    state["knowledge_graph_path"] = {
+        "path": path_result.path.nodes,
+        "edges": path_result.path.edges,
+        "subgraph": path_result.path.subgraph,
+        "stats": stats,
+        "papers_used": len(all_papers),
+    }
+    
+    # 5. Store human‑readable output for UI
+    state["node_outputs"]["knowledge_graph"] = {...}
+    return state
+```
+
+This path is then passed to the Ontologist node.
+
+### 8.3 Ontologist Agent (`agents/support/ontologist.py`)
+
+The Ontologist:
+
+- Receives the **sampled graph path** and subgraph
+- Each **domain agent** contributes field‑specific interpretations
+- Produces a **structured ontology** used as context for hypothesis generation
+
+The ontology is stored in `state["ontology"]` and surfaced in the UI at a checkpoint.
+
+---
+
+## 9. Hypothesis Generation & Refinement
+
+This is the SciAgents‑style pipeline implemented with dedicated agents.
+
+### 9.1 Hypothesis Generator (`agents/support/hypothesis_generator.py`)
+
+- Takes `ontology` + `knowledge_graph_path` + original query
+- Produces **strict 7‑field JSON** hypothesis, including:
+  - Problem statement
+  - Mechanistic explanation
+  - Key variables
+  - Quantitative predictions
+  - Experimental strategy
+
+Output is stored as `state["hypothesis"]`.
+
+### 9.2 Hypothesis Expander (`agents/support/hypothesis_expander.py`)
+
+- Extends the hypothesis with:
+  - Specific **modeling / simulation** suggestions (e.g., MD simulations)
+  - Tools (e.g., GROMACS, AMBER, LAMMPS)
+  - Experimental priorities
+  - More detailed quantitative predictions
+
+Stored as `state["expanded_hypothesis"]`.
+
+### 9.3 Hypothesis Critic (`agents/support/hypothesis_critic.py`)
+
+- Reviews the (expanded) hypothesis
+- Rates:
+  - **Novelty**
+  - **Feasibility**
+  - **Impact**
+- Identifies weaknesses and potential failure modes
+- Suggests refinements
+
+Stored as `state["critique"]`.
+
+### 9.4 Planner & Novelty Checker
+
+- **ResearchPlanner**:
+  - Turns the hypothesis + critique into a **research roadmap**
+  - Contains phases, milestones, and resource hints
+  - Stored as `state["research_plan"]`
+
+- **NoveltyChecker**:
+  - Uses Semantic Scholar to check if closely related work exists
+  - Rates novelty and lists similar papers
+  - Stored as `state["novelty_assessment"]`
+
+### 9.5 Human‑in‑the‑Loop Checkpoints
+
+The workflow pauses at:
+
+1. After **ontology generation**
+2. After **initial hypothesis**
+3. After **critique**
+
+At each point:
+
+- `state["checkpoint_pending"]` is set (e.g., `"ontology"`)
+- `state["checkpoint_data"]` holds the relevant object
+- The Streamlit UI shows a card with:
+  - Ontology / Hypothesis / Critique
+  - **Accept & Continue** button
+- When the user accepts:
+  - The UI sets `user_approvals[checkpoint_name] = True`
+  - The graph execution resumes
+
+---
+
+## 10. Research Tools (Arxiv, URL Context, PDF, etc.)
 
 ### 8.1 Tool Architecture
 
@@ -913,7 +1245,7 @@ class WebSearchTool:
 
 **Best for:** Recent news, general knowledge, when papers aren't available.
 
-### 8.6 Research Toolkit (Unified Interface)
+### 10.6 Research Toolkit (Unified Interface)
 
 ```python
 class ResearchToolkit:
@@ -942,7 +1274,7 @@ class ResearchToolkit:
 
 ---
 
-## 9. Agent System
+## 11. Agent System
 
 ### 9.1 Base Research Agent
 
@@ -1234,7 +1566,7 @@ class CrossDomainSynthesizer(BaseResearchAgent):
 
 ---
 
-## 10. Orchestrator
+## 12. Orchestrator
 
 ### File: `agents/orchestrator.py`
 
@@ -1338,123 +1670,60 @@ class Orchestrator:
 
 ---
 
-## 11. LangGraph Workflow
+## 13. LangGraph Workflows (Structured vs Automated)
 
-### File: `graphs/research_graph.py`
+### 13.1 Structured Mode (Classic Multi‑Agent RAG)
 
-LangGraph defines the workflow as a state machine:
-
-```python
-from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
-
-class ResearchGraph:
-    """LangGraph-based research workflow."""
-    
-    def __init__(self, team_config: TeamConfiguration):
-        self.team_config = team_config
-        self.orchestrator = Orchestrator(team_config)
-        self.checkpointer = MemorySaver()  # State persistence
-        
-        self.graph = self._build_graph()
-        self.compiled_graph = self.graph.compile(
-            checkpointer=self.checkpointer
-        )
-    
-    def _build_graph(self) -> StateGraph:
-        """Build the workflow graph."""
-        
-        # Create graph with state schema
-        graph = StateGraph(WorkflowState)
-        
-        # Add nodes
-        graph.add_node("route", self._route_node)
-        graph.add_node("domain_research", self._domain_research_node)
-        graph.add_node("support_processing", self._support_processing_node)
-        graph.add_node("synthesize", self._synthesize_node)
-        
-        # Set entry point
-        graph.set_entry_point("route")
-        
-        # Add edges
-        graph.add_edge("route", "domain_research")
-        graph.add_edge("domain_research", "support_processing")
-        graph.add_edge("support_processing", "synthesize")
-        graph.add_edge("synthesize", END)
-        
-        return graph
-```
-
-### Workflow Nodes
+In **structured** mode, the workflow behaves like the earlier version:
 
 ```python
-async def _route_node(self, state: WorkflowState) -> WorkflowState:
-    """Routing node - analyze query and decide agents."""
-    state["current_phase"] = "routing"
-    
-    query = state["current_query"]
-    routing = await self.orchestrator.route_query(query)
-    
-    state["research_context"]["routing"] = routing.model_dump()
-    state["current_agent"] = routing.domain_agents[0]
-    
-    return state
+graph.add_node("init", self._init_node)
+graph.add_node("workflow_decision", self._workflow_decision_node)
+graph.add_node("routing", self._routing_node)
+graph.add_node("domain_research", self._domain_research_node)
+graph.add_node("support_review", self._support_review_node)
+graph.add_node("synthesis", self._synthesis_node)
+graph.add_node("complete", self._complete_node)
 
-async def _domain_research_node(self, state: WorkflowState) -> WorkflowState:
-    """Domain research node - parallel agent execution."""
-    state["current_phase"] = "domain_research"
-    
-    routing = state["research_context"]["routing"]
-    query = state["current_query"]
-    
-    # Execute domain agents in parallel
-    tasks = [
-        self.orchestrator._domain_agents[field].research(query)
-        for field in routing["domain_agents"]
-    ]
-    results = await asyncio.gather(*tasks)
-    
-    state["domain_results"] = results
-    return state
+graph.set_entry_point("init")
 
-async def _support_processing_node(self, state: WorkflowState) -> WorkflowState:
-    """Support agents process domain results."""
-    state["current_phase"] = "support"
-    
-    domain_results = state["domain_results"]
-    
-    # Literature review
-    lit_review = await self.orchestrator._support_agents["literature_reviewer"].process(domain_results)
-    
-    # Fact checking
-    fact_check = await self.orchestrator._support_agents["fact_checker"].verify(domain_results)
-    
-    state["support_results"] = [lit_review, fact_check]
-    return state
-
-async def _synthesize_node(self, state: WorkflowState) -> WorkflowState:
-    """Synthesize all results into final response."""
-    state["current_phase"] = "synthesis"
-    
-    # Combine all results
-    domain_text = "\n\n".join([r.to_markdown() for r in state["domain_results"]])
-    
-    llm = ChatOpenAI(...)
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "Synthesize these research findings into a comprehensive response."),
-        ("human", "Query: {query}\n\nFindings:\n{findings}")
-    ])
-    
-    chain = prompt | llm | StrOutputParser()
-    state["final_response"] = await chain.ainvoke({
-        "query": state["current_query"].query,
-        "findings": domain_text
-    })
-    
-    return state
+graph.add_edge("init", "workflow_decision")
+graph.add_edge("workflow_decision", "routing")
+graph.add_edge("routing", "domain_research")
+graph.add_edge("domain_research", "support_review")
+graph.add_edge("support_review", "synthesis")
+graph.add_edge("synthesis", "complete")
+graph.add_edge("complete", END)
 ```
 
-### Visual Workflow
+### 13.2 Automated Mode (SciAgents‑Style)
+
+In **automated** mode, the graph extends beyond support review into KG + hypothesis:
+
+```python
+# After routing and domain research:
+graph.add_node("knowledge_graph", self._knowledge_graph_node)
+graph.add_node("ontologist", self._ontologist_node)
+graph.add_node("hypothesis_generation", self._hypothesis_generation_node)
+graph.add_node("hypothesis_expansion", self._hypothesis_expansion_node)
+graph.add_node("critique", self._critique_node)
+graph.add_node("planner", self._planner_node)
+graph.add_node("novelty_check", self._novelty_check_node)
+
+# Automated path:
+graph.add_edge("domain_research", "knowledge_graph")
+graph.add_edge("knowledge_graph", "ontologist")
+graph.add_edge("ontologist", "hypothesis_generation")
+graph.add_edge("hypothesis_generation", "hypothesis_expansion")
+graph.add_edge("hypothesis_expansion", "critique")
+graph.add_edge("critique", "planner")
+graph.add_edge("planner", "novelty_check")
+graph.add_edge("novelty_check", "support_review")
+```
+
+The mode is selected by `workflow_mode` on the state and controlled from the Streamlit UI.
+
+### 13.3 Visual High‑Level Flow
 
 ```
     ┌─────────────────────────────────────────────────────────┐
@@ -1508,7 +1777,7 @@ async def _synthesize_node(self, state: WorkflowState) -> WorkflowState:
 
 ---
 
-## 12. Streamlit UI
+## 14. Streamlit UI & Human‑in‑the‑Loop Checkpoints
 
 ### App Structure
 
@@ -1582,79 +1851,22 @@ def render_team_setup_page():
         st.rerun()
 ```
 
-### Research Session Page
+### Research Session Page (Updated)
 
 **File:** `ui/pages/research_session.py`
 
-```python
-def render_research_session_page():
-    st.header("🔬 Research Session")
-    
-    # Check for team config
-    if "team_config" not in st.session_state:
-        st.warning("Please configure your team first!")
-        return
-    
-    team_config = st.session_state["team_config"]
-    
-    # Initialize graph if needed
-    if "research_graph" not in st.session_state:
-        st.session_state["research_graph"] = create_research_graph(team_config)
-    
-    # Display team
-    st.sidebar.subheader("Your Team")
-    for field in team_config.domain_agents:
-        st.sidebar.write(f"• {FIELD_DISPLAY_NAMES[field]}")
-    
-    # Chat interface
-    st.subheader("Ask a Research Question")
-    
-    # Message history
-    if "messages" not in st.session_state:
-        st.session_state["messages"] = []
-    
-    # Display messages
-    for msg in st.session_state["messages"]:
-        with st.chat_message(msg["role"]):
-            st.write(msg["content"])
-    
-    # Input
-    if query := st.chat_input("Enter your research question..."):
-        # Add user message
-        st.session_state["messages"].append({"role": "user", "content": query})
-        
-        # Show user message
-        with st.chat_message("user"):
-            st.write(query)
-        
-        # Process with research graph
-        with st.chat_message("assistant"):
-            with st.spinner("Researching..."):
-                # Create query
-                research_query = ResearchQuery(query=query)
-                
-                # Run graph
-                graph = st.session_state["research_graph"]
-                result = graph.run_sync(query)
-                
-                # Display result
-                st.write(result["final_response"])
-                
-                # Show sources
-                with st.expander("📚 Sources"):
-                    for paper in result.get("papers", []):
-                        st.write(f"- [{paper.title}]({paper.url})")
-        
-        # Add to history
-        st.session_state["messages"].append({
-            "role": "assistant",
-            "content": result["final_response"]
-        })
-```
+Key updates:
+
+- Adds a **workflow mode toggle** (structured vs automated)
+- Initializes `st.session_state.workflow_mode` safely (fixing prior `StreamlitAPIException`)
+- Renders **workflow steps** and **node outputs**
+- Implements **checkpoint UI** for ontology, hypothesis, and critique
+
+> See `research_lab/ui/pages/research_session.py` for the full implementation.
 
 ---
 
-## 13. Data Flow
+## 15. Data Flow
 
 ### Complete Request Flow
 
@@ -1773,7 +1985,7 @@ def render_research_session_page():
 
 ---
 
-## 14. Extending the System
+## 16. Extending the System
 
 ### Adding a New Domain Agent
 
@@ -1871,11 +2083,11 @@ Same pattern as domain agents, but in `agents/support/`.
 
 ---
 
-## 15. Troubleshooting
+## 17. Troubleshooting & Diagnostics
 
 ### Common Issues
 
-#### API Key Errors
+#### API Key & Endpoint Errors
 
 ```
 Error: Invalid API key
@@ -1896,7 +2108,7 @@ Error: Collection not found
 - Check `CHROMA_PERSIST_DIRECTORY` path exists
 - Delete `./data/chroma_db` folder to reset
 
-#### Import Errors
+#### Import / Dependency Errors
 
 ```
 ModuleNotFoundError: No module named 'langchain_classic'
@@ -1907,7 +2119,7 @@ ModuleNotFoundError: No module named 'langchain_classic'
 pip install langchain-community
 ```
 
-#### Memory Issues
+#### Memory / GPU Issues
 
 ```
 Error: CUDA out of memory
@@ -1917,7 +2129,7 @@ Error: CUDA out of memory
 - Reduce `max_results` in tool settings
 - Use smaller embedding model
 
-### Debugging Tips
+### Debugging Tips & Helper Files
 
 1. **Enable verbose mode** in agents:
 ```python
@@ -1956,8 +2168,11 @@ cd research_lab
 # Run app
 streamlit run app.py
 
-# Run tests
-python test_functionality.py
+# Run quick workflow tests
+python test_workflow_quick.py
+
+# Run comprehensive tests (slower, uses APIs)
+python -m pytest test_production_comprehensive.py -v
 ```
 
 ### Key Files to Modify
@@ -1993,14 +2208,16 @@ Final Response ──▶ Displayed in UI
 
 ## Congratulations! 🎉
 
-You now have a complete understanding of the Research Lab system. Key takeaways:
+You now have an updated, end‑to‑end view of the **current** Research Lab system:
 
-1. **Modular Design**: Each component is self-contained and reusable
-2. **Type Safety**: Pydantic ensures data consistency
-3. **Intelligent Retrieval**: RAG with reflection improves quality
-4. **Memory**: Both conversation context and persistent learning
-5. **Orchestration**: LangGraph manages complex multi-agent workflows
-6. **Extensibility**: Easy to add new agents, tools, and features
+1. **Dual workflows**: Structured (classic) and Automated (SciAgents‑style)
+2. **Knowledge graph** built from **query‑relevant** papers
+3. **Collaborative ontology** from domain agents
+4. **Structured hypothesis pipeline** with expansion, critique, planning, and novelty check
+5. **Local BGE‑M3 embeddings** with singleton caching and error‑aware fallbacks
+6. **Robust tools**: URL context, Wikipedia API, PDF reader, auto‑seeding RAG
+7. **Human‑in‑the‑loop checkpoints** wired into the Streamlit UI
 
 Happy researching! 🔬
+
 

@@ -1,0 +1,43 @@
+"""
+Pytest configuration and shared fixtures.
+
+This file is automatically discovered by pytest and provides shared fixtures
+available to all test files.
+"""
+
+import pytest
+import os
+import sys
+import tempfile
+import shutil
+
+# Add parent directory to path
+sys.path.insert(0, '.')
+
+# Disable RAG seeding for faster tests
+os.environ["RAG_SEED_ENABLED"] = "false"
+
+# Import test utilities
+from test_utils import (
+    temp_db_dir,
+    mock_paper,
+    mock_papers,
+    mock_research_result,
+    mock_team_config,
+    mock_team_config_single,
+    initial_state,
+    initial_state_automated
+)
+
+# Re-export fixtures for pytest
+__all__ = [
+    "temp_db_dir",
+    "mock_paper",
+    "mock_papers",
+    "mock_research_result",
+    "mock_team_config",
+    "mock_team_config_single",
+    "initial_state",
+    "initial_state_automated"
+]
+

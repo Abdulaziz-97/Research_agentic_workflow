@@ -60,6 +60,23 @@ class WorkflowState(TypedDict, total=False):
     # Node outputs for step-by-step display
     node_outputs: Dict[str, Dict[str, Any]]  # {node_name: {output, timestamp, status}}
     
+    # Hypothesis generation workflow (SciAgents-style)
+    knowledge_graph_path: Optional[Dict[str, Any]]  # Sampled graph path
+    ontology: Optional[Dict[str, Any]]  # Ontology from Ontologist
+    hypothesis: Optional[Dict[str, Any]]  # Initial hypothesis from Scientist_1
+    expanded_hypothesis: Optional[Dict[str, Any]]  # Expanded from Scientist_2
+    critique: Optional[Dict[str, Any]]  # Critique from Critic
+    research_plan: Optional[Dict[str, Any]]  # Plan from Planner
+    novelty_assessment: Optional[Dict[str, Any]]  # Novelty from Novelty Checker
+    
+    # Workflow mode
+    workflow_mode: Literal["structured", "automated"]  # Structured (LangGraph) or Automated (self-organizing)
+    
+    # Human-in-the-loop checkpoints
+    checkpoint_pending: Optional[str]  # Current checkpoint waiting for user input
+    checkpoint_data: Optional[Dict[str, Any]]  # Data for current checkpoint
+    user_approvals: Dict[str, bool]  # Track user approvals at checkpoints
+    
     # Error handling
     error_message: Optional[str]
     retry_count: int
@@ -72,7 +89,8 @@ class WorkflowState(TypedDict, total=False):
 
 def create_initial_state(
     session_id: str,
-    team_config: TeamConfiguration
+    team_config: TeamConfiguration,
+    workflow_mode: Literal["structured", "automated"] = "structured"
 ) -> WorkflowState:
     """Create initial workflow state."""
     return {
@@ -91,6 +109,17 @@ def create_initial_state(
         "research_stats": {},
         "phase_details": {},
         "node_outputs": {},
+        "knowledge_graph_path": None,
+        "ontology": None,
+        "hypothesis": None,
+        "expanded_hypothesis": None,
+        "critique": None,
+        "research_plan": None,
+        "novelty_assessment": None,
+        "workflow_mode": workflow_mode,
+        "checkpoint_pending": None,
+        "checkpoint_data": None,
+        "user_approvals": {},
         "error_message": None,
         "retry_count": 0,
         "session_id": session_id,

@@ -179,7 +179,8 @@ class VectorStore:
                 "field": paper.field,
                 "url": paper.url or "",
                 "citations": paper.citations or 0,
-                "doc_type": "paper"
+                "doc_type": "paper",
+                "authors": ", ".join(paper.authors) if paper.authors else "Unknown"
             }
             
             if paper.published_date:

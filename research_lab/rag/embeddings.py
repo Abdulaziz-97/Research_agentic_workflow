@@ -162,9 +162,16 @@ class OpenAIEmbeddingsWrapper(BaseEmbeddings):
         return dimensions.get(self.model, 1536)
 
 
+# Global singleton cache for embeddings models
+_embeddings_cache: dict[str, BaseEmbeddings] = {}
+
+
 def get_embeddings_model(model: Optional[str] = None) -> BaseEmbeddings:
     """
     Get an embeddings model instance based on configured provider.
+    
+    Uses a singleton pattern to ensure BGE-M3 is only loaded once,
+    even when multiple agents/vector stores are created.
     
     Supports BGE-M3 (free, local) and OpenAI (API-based).
     
@@ -172,20 +179,30 @@ def get_embeddings_model(model: Optional[str] = None) -> BaseEmbeddings:
         model: Model name (only used for OpenAI provider)
         
     Returns:
-        BaseEmbeddings instance
+        BaseEmbeddings instance (singleton for BGE-M3)
     """
     provider = settings.embeddings_provider
     
+    # Create cache key based on provider and model
+    if provider == "bge-m3":
+        cache_key = f"bge-m3_{settings.bge_m3_model_name}_{settings.bge_m3_use_fp16}"
+    else:
+        cache_key = f"openai_{model or settings.openai_embeddings_model}"
+    
+    # Return cached instance if available
+    if cache_key in _embeddings_cache:
+        return _embeddings_cache[cache_key]
+    
+    # Create new instance
     if provider == "bge-m3":
         if not BGE_M3_AVAILABLE:
             raise ImportError(
                 "BGE-M3 is not available. Install it with: pip install FlagEmbedding"
             )
-        return BGEM3Embeddings(
+        embeddings = BGEM3Embeddings(
             model_name=settings.bge_m3_model_name,
             use_fp16=settings.bge_m3_use_fp16
         )
-    
     elif provider == "openai":
         if not OPENAI_EMBEDDINGS_AVAILABLE:
             raise ImportError(
@@ -225,14 +242,17 @@ def get_embeddings_model(model: Optional[str] = None) -> BaseEmbeddings:
             else:
                 final_base_url = None
         
-        return OpenAIEmbeddingsWrapper(
+        embeddings = OpenAIEmbeddingsWrapper(
             model=embeddings_model,
             api_key=api_key,
             base_url=final_base_url
         )
-    
     else:
         raise ValueError(f"Unsupported embeddings provider: {provider}")
+    
+    # Cache the instance and return it
+    _embeddings_cache[cache_key] = embeddings
+    return embeddings
 
 
 class EmbeddingManager:

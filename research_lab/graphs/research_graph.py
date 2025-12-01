@@ -3,6 +3,7 @@
 from typing import Dict, Any, List, Optional, Literal
 from datetime import datetime
 import asyncio
+import json
 
 from langgraph.graph import StateGraph, END, START
 from langgraph.checkpoint.memory import MemorySaver
@@ -12,6 +13,17 @@ from states.workflow_state import WorkflowState, create_initial_state
 from states.agent_state import ResearchQuery, ResearchResult, TeamConfiguration, Paper
 from agents.orchestrator import Orchestrator
 from config.settings import settings, FIELD_DISPLAY_NAMES
+from agents.support import (
+    OntologistAgent,
+    HypothesisGeneratorAgent,
+    HypothesisExpanderAgent,
+    HypothesisCriticAgent,
+    ResearchPlannerAgent,
+    NoveltyCheckerAgent
+)
+from agents.base_agent import BaseResearchAgent
+from knowledge_graph.service import KnowledgeGraphService, PathSamplingResult, GraphPath
+from rag.vector_store import VectorStore
 
 
 # Academic paper synthesis prompt - produces publication-quality output
@@ -143,6 +155,7 @@ class ResearchGraph:
     def _build_graph(self) -> StateGraph:
         graph = StateGraph(WorkflowState)
         
+        # Core workflow nodes
         graph.add_node("init", self._init_node)
         graph.add_node("routing", self._routing_node)
         graph.add_node("domain_research", self._domain_research_node)
@@ -150,10 +163,53 @@ class ResearchGraph:
         graph.add_node("synthesis", self._synthesis_node)
         graph.add_node("complete", self._complete_node)
         
+        # Hypothesis generation workflow nodes (SciAgents-style)
+        graph.add_node("knowledge_graph", self._knowledge_graph_node)
+        graph.add_node("ontologist", self._ontologist_node)
+        graph.add_node("hypothesis_generation", self._hypothesis_generation_node)
+        graph.add_node("hypothesis_expansion", self._hypothesis_expansion_node)
+        graph.add_node("critique", self._critique_node)
+        graph.add_node("planner", self._planner_node)
+        graph.add_node("novelty_check", self._novelty_check_node)
+        
+        # Decision node for workflow mode
+        graph.add_node("workflow_decision", self._workflow_decision_node)
+        
+        # Build edges
         graph.add_edge(START, "init")
-        graph.add_edge("init", "routing")
+        graph.add_edge("init", "workflow_decision")
+        
+        # Conditional routing based on workflow mode
+        graph.add_conditional_edges(
+            "workflow_decision",
+            self._route_by_mode,
+            {
+                "domain_research_workflow": "routing"
+            }
+        )
+        
+        # After domain research, route based on mode
         graph.add_edge("routing", "domain_research")
-        graph.add_edge("domain_research", "support_review")
+        graph.add_conditional_edges(
+            "domain_research",
+            self._route_after_domain_research,
+            {
+                "hypothesis_workflow": "knowledge_graph",
+                "traditional_workflow": "support_review"
+            }
+        )
+        
+        # Hypothesis generation workflow path (automated mode)
+        # NEW ORDER: Domain Research FIRST → Knowledge Graph (from found papers) → Collaborative Ontology → Hypothesis
+        graph.add_edge("knowledge_graph", "ontologist")  # Domain agents collaborate on ontology
+        graph.add_edge("ontologist", "hypothesis_generation")
+        graph.add_edge("hypothesis_generation", "hypothesis_expansion")
+        graph.add_edge("hypothesis_expansion", "critique")
+        graph.add_edge("critique", "planner")
+        graph.add_edge("planner", "novelty_check")
+        graph.add_edge("novelty_check", "support_review")  # Then support review
+        
+        # Traditional workflow path (structured mode - no hypothesis generation)
         graph.add_edge("support_review", "synthesis")
         graph.add_edge("synthesis", "complete")
         graph.add_edge("complete", END)
@@ -491,26 +547,599 @@ class ResearchGraph:
         except:
             return "Unknown"
     
-    async def run(self, query: str, thread_id: str = "default") -> WorkflowState:
-        initial_state = create_initial_state(session_id=thread_id, team_config=self.team_config)
+    def _workflow_decision_node(self, state: WorkflowState) -> WorkflowState:
+        """Decision node to route based on workflow mode."""
+        state["current_phase"] = "workflow_decision"
+        
+        # Store node output
+        if "node_outputs" not in state:
+            state["node_outputs"] = {}
+        state["node_outputs"]["workflow_decision"] = {
+            "status": "complete",
+            "timestamp": datetime.now().isoformat(),
+            "output": f"Workflow mode: {state.get('workflow_mode', 'structured')}",
+            "details": {
+                "mode": state.get("workflow_mode", "structured"),
+                "route": "hypothesis_workflow" if state.get("workflow_mode") == "automated" else "domain_research_workflow"
+            }
+        }
+        
+        return state
+    
+    def _route_by_mode(self, state: WorkflowState) -> str:
+        """Route based on workflow mode."""
+        # Both modes start with domain research
+        return "domain_research_workflow"
+    
+    def _route_after_domain_research(self, state: WorkflowState) -> str:
+        """Route after domain research based on workflow mode."""
+        mode = state.get("workflow_mode", "structured")
+        if mode == "automated":
+            return "hypothesis_workflow"  # Build graph from found papers, then generate hypothesis
+        else:
+            return "traditional_workflow"  # Skip hypothesis generation
+    
+    async def _knowledge_graph_node(self, state: WorkflowState) -> WorkflowState:
+        """Build knowledge graph from papers found during domain research."""
+        state["current_phase"] = "knowledge_graph"
+        
+        try:
+            # Collect all papers from domain research results
+            all_papers = []
+            for result in state.get("domain_results", []):
+                if hasattr(result, 'papers'):
+                    all_papers.extend(result.papers)
+                elif isinstance(result, dict) and 'papers' in result:
+                    all_papers.extend(result['papers'])
+            
+            if not all_papers:
+                raise ValueError("No papers found from domain research. Cannot build knowledge graph.")
+            
+            # Create a temporary vector store with the found papers
+            # Use a combined collection for all domains
+            temp_collection = f"temp_kg_{state['session_id']}"
+            vector_store = VectorStore(collection_name=temp_collection)
+            
+            # Add all found papers to the temporary collection
+            for paper in all_papers:
+                try:
+                    vector_store.add_paper(paper)
+                except Exception as e:
+                    # Skip papers that fail to add
+                    continue
+            
+            # Build knowledge graph from these papers
+            kg_service = KnowledgeGraphService(vector_store=vector_store, field=None)  # No field filter
+            
+            # Build graph from all found papers
+            stats = kg_service.build_graph(max_papers=len(all_papers))
+            
+            # Sample path (random for novelty)
+            # Extract key terms from query for better path sampling
+            query = ""
+            for msg in reversed(state["messages"]):
+                if isinstance(msg, HumanMessage):
+                    query = msg.content
+                    break
+            
+            # Try to extract keywords from query for path sampling
+            import re
+            keywords = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', query)
+            source = keywords[0] if keywords and len(keywords) > 0 else None
+            target = keywords[1] if keywords and len(keywords) > 1 else None
+            
+            path_result = kg_service.sample_path(
+                source=source,
+                target=target,
+                path_type="random",
+                max_length=10,
+                random_waypoints=2
+            )
+            
+            state["knowledge_graph_path"] = {
+                "path": path_result.path.nodes,
+                "edges": path_result.path.edges,
+                "subgraph": path_result.path.subgraph,
+                "stats": stats,
+                "papers_used": len(all_papers)
+            }
+            
+            # Store node output
+            if "node_outputs" not in state:
+                state["node_outputs"] = {}
+            state["node_outputs"]["knowledge_graph"] = {
+                "status": "complete",
+                "timestamp": datetime.now().isoformat(),
+                "output": f"Knowledge graph built from {len(all_papers)} papers. Path sampled: {len(path_result.path.nodes)} nodes, {len(path_result.path.edges)} edges",
+                "details": {
+                    "nodes": path_result.path.nodes,
+                    "path_type": path_result.path_type,
+                    "graph_stats": stats,
+                    "papers_used": len(all_papers)
+                }
+            }
+            
+        except Exception as e:
+            state["error_message"] = f"Knowledge graph error: {str(e)}"
+            state["node_outputs"]["knowledge_graph"] = {
+                "status": "error",
+                "timestamp": datetime.now().isoformat(),
+                "output": f"Error: {str(e)}",
+                "details": {}
+            }
+        
+        return state
+    
+    async def _ontologist_node(self, state: WorkflowState) -> WorkflowState:
+        """Generate ontology collaboratively from domain agents using their field expertise."""
+        state["current_phase"] = "ontologist"
+        
+        try:
+            kg_path = state.get("knowledge_graph_path")
+            if not kg_path:
+                raise ValueError("Knowledge graph path not found")
+            
+            graph_path = GraphPath(
+                nodes=kg_path["path"],
+                edges=kg_path["edges"],
+                subgraph=kg_path["subgraph"]
+            )
+            
+            query = ""
+            for msg in reversed(state["messages"]):
+                if isinstance(msg, HumanMessage):
+                    query = msg.content
+                    break
+            
+            # Get domain agents to collaborate on ontology
+            domain_agents = state.get("active_domain_agents", [])
+            if not domain_agents:
+                raise ValueError("No domain agents available for ontology generation")
+            
+            # Each domain agent contributes their field expertise
+            collaborative_ontology = {
+                "definitions": {},
+                "relationships": [],
+                "field_contributions": {}
+            }
+            
+            # Collect contributions from each domain agent
+            for field in domain_agents:
+                if field in self.orchestrator.domain_agents:
+                    agent = self.orchestrator.domain_agents[field]
+                    field_name = FIELD_DISPLAY_NAMES.get(field, field)
+                    
+                    # Each agent analyzes the graph path from their field perspective
+                    try:
+                        field_ontology = await self._generate_field_ontology(
+                            agent, graph_path, query, field_name
+                        )
+                        
+                        # Merge field contributions
+                        if field_ontology.get("definitions"):
+                            collaborative_ontology["definitions"].update(field_ontology["definitions"])
+                        if field_ontology.get("relationships"):
+                            collaborative_ontology["relationships"].extend(field_ontology["relationships"])
+                        
+                        collaborative_ontology["field_contributions"][field] = {
+                            "concepts_defined": len(field_ontology.get("definitions", {})),
+                            "relationships_identified": len(field_ontology.get("relationships", []))
+                        }
+                    except Exception as e:
+                        # Continue if one agent fails
+                        print(f"Warning: {field_name} agent failed to contribute to ontology: {e}")
+                        continue
+            
+            # Synthesize collaborative ontology
+            if not collaborative_ontology["definitions"]:
+                # Fallback to single ontologist if collaboration fails
+                ontologist = OntologistAgent()
+                ontology_result = ontologist.generate_ontology(graph_path, query)
+                if ontology_result["success"]:
+                    collaborative_ontology = ontology_result["ontology"]
+                else:
+                    raise ValueError("Failed to generate ontology")
+            else:
+                # Add summary
+                collaborative_ontology["ontology_summary"] = (
+                    f"Collaborative ontology generated by {len(collaborative_ontology['field_contributions'])} "
+                    f"domain experts. {len(collaborative_ontology['definitions'])} concepts defined, "
+                    f"{len(collaborative_ontology['relationships'])} relationships identified."
+                )
+            
+            state["ontology"] = collaborative_ontology
+            
+            # Checkpoint: User can review ontology
+            state["checkpoint_pending"] = "ontology"
+            state["checkpoint_data"] = {"ontology": collaborative_ontology}
+            
+            state["node_outputs"]["ontologist"] = {
+                "status": "complete",
+                "timestamp": datetime.now().isoformat(),
+                "output": f"Collaborative ontology generated by {len(collaborative_ontology.get('field_contributions', {}))} domain agents. Waiting for user approval.",
+                "details": {
+                    "concepts": list(collaborative_ontology.get("definitions", {}).keys()),
+                    "relationships_count": len(collaborative_ontology.get("relationships", [])),
+                    "field_contributions": collaborative_ontology.get("field_contributions", {})
+                }
+            }
+                
+        except Exception as e:
+            state["error_message"] = f"Ontologist error: {str(e)}"
+            state["node_outputs"]["ontologist"] = {
+                "status": "error",
+                "timestamp": datetime.now().isoformat(),
+                "output": f"Error: {str(e)}",
+                "details": {}
+            }
+        
+        return state
+    
+    async def _generate_field_ontology(
+        self,
+        agent: BaseResearchAgent,
+        graph_path: GraphPath,
+        query: str,
+        field_name: str
+    ) -> Dict[str, Any]:
+        """Generate ontology contribution from a domain agent's field perspective."""
+        from langchain_core.prompts import ChatPromptTemplate
+        from langchain_core.output_parsers import StrOutputParser
+        import json
+        import re
+        
+        # Build path context
+        path_context = self._build_path_context_for_agent(graph_path)
+        
+        # Create field-specific prompt
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", f"""You are a {field_name} domain expert analyzing a knowledge graph path.
+
+Your role is to analyze the concepts and relationships in this graph path from a {field_name} perspective.
+
+For each concept in the path, provide:
+1. A definition from a {field_name} perspective
+2. How it relates to {field_name} research
+3. Key properties or characteristics relevant to {field_name}
+
+For each relationship, explain:
+1. How this relationship manifests in {field_name}
+2. Scientific significance from a {field_name} perspective
+
+Return JSON:
+{{
+    "definitions": {{
+        "concept_name": "Definition from {field_name} perspective"
+    }},
+    "relationships": [
+        {{
+            "source": "concept1",
+            "relationship": "relationship_type",
+            "target": "concept2",
+            "explanation": "How this relationship is understood in {field_name}"
+        }}
+    ]
+}}
+
+Focus on {field_name} expertise and field-specific insights."""),
+            ("human", f"""Analyze this knowledge graph path from a {field_name} perspective:
+
+{path_context}
+
+Research Query: {query}
+
+Provide field-specific definitions and relationship explanations. Return only valid JSON.""")
+        ])
+        
+        chain = prompt | agent._llm | StrOutputParser()
+        
+        try:
+            response = chain.invoke({})
+            
+            # Extract JSON
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                return json.loads(json_match.group())
+            else:
+                return json.loads(response)
+        except Exception as e:
+            # Return empty if parsing fails
+            return {"definitions": {}, "relationships": []}
+    
+    def _build_path_context_for_agent(self, graph_path: GraphPath) -> str:
+        """Build context string from graph path for agent analysis."""
+        context_parts = [
+            "KNOWLEDGE GRAPH PATH:",
+            "",
+            "NODES (Concepts):"
+        ]
+        
+        for node in graph_path.nodes:
+            context_parts.append(f"- {node}")
+        
+        context_parts.append("")
+        context_parts.append("RELATIONSHIPS:")
+        
+        for source, rel, target in graph_path.edges:
+            context_parts.append(f"- {source} --[{rel}]--> {target}")
+        
+        return "\n".join(context_parts)
+    
+    async def _hypothesis_generation_node(self, state: WorkflowState) -> WorkflowState:
+        """Generate structured hypothesis collaboratively from domain agents using their field expertise."""
+        state["current_phase"] = "hypothesis_generation"
+        
+        try:
+            ontology = state.get("ontology")
+            if not ontology:
+                raise ValueError("Ontology not found")
+            
+            kg_path = state.get("knowledge_graph_path", {})
+            path_context = kg_path.get("subgraph", {}).get("path", "")
+            
+            query = ""
+            for msg in reversed(state["messages"]):
+                if isinstance(msg, HumanMessage):
+                    query = msg.content
+                    break
+            
+            # Get domain agents to collaborate on hypothesis
+            domain_agents = state.get("active_domain_agents", [])
+            field_contributions = ontology.get("field_contributions", {})
+            
+            # Generate hypothesis using collaborative ontology
+            # Include field contributions in context
+            collaborative_context = f"""
+COLLABORATIVE ONTOLOGY (Generated by {len(field_contributions)} domain experts):
+{json.dumps(ontology, indent=2)}
+
+FIELD CONTRIBUTIONS:
+"""
+            for field, contrib in field_contributions.items():
+                field_name = FIELD_DISPLAY_NAMES.get(field, field)
+                collaborative_context += f"- {field_name}: {contrib.get('concepts_defined', 0)} concepts, {contrib.get('relationships_identified', 0)} relationships\n"
+            
+            generator = HypothesisGeneratorAgent()
+            hypothesis_result = generator.generate_hypothesis(
+                ontology, 
+                path_context + "\n\n" + collaborative_context, 
+                query
+            )
+            
+            if hypothesis_result["success"]:
+                state["hypothesis"] = hypothesis_result["hypothesis"]
+                
+                # Add field collaboration info
+                state["hypothesis"]["collaborative_fields"] = list(field_contributions.keys())
+                state["hypothesis"]["field_contributions"] = field_contributions
+                
+                # Checkpoint: User can review hypothesis
+                state["checkpoint_pending"] = "hypothesis"
+                state["checkpoint_data"] = {"hypothesis": hypothesis_result["hypothesis"]}
+                
+                state["node_outputs"]["hypothesis_generation"] = {
+                    "status": "complete",
+                    "timestamp": datetime.now().isoformat(),
+                    "output": f"Hypothesis generated collaboratively by {len(field_contributions)} domain experts. Waiting for user approval.",
+                    "details": {
+                        "hypothesis_summary": hypothesis_result["hypothesis"].get("hypothesis", "")[:200],
+                        "collaborating_fields": list(field_contributions.keys())
+                    }
+                }
+            else:
+                raise ValueError(hypothesis_result.get("error", "Unknown error"))
+                
+        except Exception as e:
+            state["error_message"] = f"Hypothesis generation error: {str(e)}"
+            state["node_outputs"]["hypothesis_generation"] = {
+                "status": "error",
+                "timestamp": datetime.now().isoformat(),
+                "output": f"Error: {str(e)}",
+                "details": {}
+            }
+        
+        return state
+    
+    async def _hypothesis_expansion_node(self, state: WorkflowState) -> WorkflowState:
+        """Expand hypothesis with quantitative details."""
+        state["current_phase"] = "hypothesis_expansion"
+        
+        try:
+            hypothesis = state.get("hypothesis")
+            if not hypothesis:
+                raise ValueError("Hypothesis not found")
+            
+            ontology = state.get("ontology")
+            
+            expander = HypothesisExpanderAgent()
+            expansion_result = expander.expand_hypothesis(hypothesis, ontology)
+            
+            if expansion_result["success"]:
+                state["expanded_hypothesis"] = expansion_result["expanded_hypothesis"]
+                
+                state["node_outputs"]["hypothesis_expansion"] = {
+                    "status": "complete",
+                    "timestamp": datetime.now().isoformat(),
+                    "output": "Hypothesis expanded with quantitative details and experimental plans.",
+                    "details": {
+                        "modeling_priorities": len(expansion_result["expanded_hypothesis"].get("modeling_priorities", [])),
+                        "experimental_priorities": len(expansion_result["expanded_hypothesis"].get("experimental_priorities", []))
+                    }
+                }
+            else:
+                raise ValueError(expansion_result.get("error", "Unknown error"))
+                
+        except Exception as e:
+            state["error_message"] = f"Hypothesis expansion error: {str(e)}"
+            state["node_outputs"]["hypothesis_expansion"] = {
+                "status": "error",
+                "timestamp": datetime.now().isoformat(),
+                "output": f"Error: {str(e)}",
+                "details": {}
+            }
+        
+        return state
+    
+    async def _critique_node(self, state: WorkflowState) -> WorkflowState:
+        """Critique the hypothesis."""
+        state["current_phase"] = "critique"
+        
+        try:
+            hypothesis = state.get("hypothesis")
+            if not hypothesis:
+                raise ValueError("Hypothesis not found")
+            
+            expanded = state.get("expanded_hypothesis")
+            
+            critic = HypothesisCriticAgent()
+            critique_result = critic.critique_hypothesis(hypothesis, expanded)
+            
+            if critique_result["success"]:
+                state["critique"] = critique_result["critique"]
+                
+                # Checkpoint: User can review critique
+                state["checkpoint_pending"] = "critique"
+                state["checkpoint_data"] = {"critique": critique_result["critique"]}
+                
+                state["node_outputs"]["critique"] = {
+                    "status": "complete",
+                    "timestamp": datetime.now().isoformat(),
+                    "output": "Hypothesis critiqued. Waiting for user approval.",
+                    "details": {
+                        "novelty_score": critique_result["critique"].get("novelty_rating", {}).get("score", 0),
+                        "feasibility_score": critique_result["critique"].get("feasibility_rating", {}).get("score", 0)
+                    }
+                }
+            else:
+                raise ValueError(critique_result.get("error", "Unknown error"))
+                
+        except Exception as e:
+            state["error_message"] = f"Critique error: {str(e)}"
+            state["node_outputs"]["critique"] = {
+                "status": "error",
+                "timestamp": datetime.now().isoformat(),
+                "output": f"Error: {str(e)}",
+                "details": {}
+            }
+        
+        return state
+    
+    async def _planner_node(self, state: WorkflowState) -> WorkflowState:
+        """Create research plan."""
+        state["current_phase"] = "planner"
+        
+        try:
+            hypothesis = state.get("hypothesis")
+            if not hypothesis:
+                raise ValueError("Hypothesis not found")
+            
+            expanded = state.get("expanded_hypothesis")
+            critique = state.get("critique")
+            
+            planner = ResearchPlannerAgent()
+            plan_result = planner.create_research_plan(hypothesis, expanded, critique)
+            
+            if plan_result["success"]:
+                state["research_plan"] = plan_result["research_plan"]
+                
+                state["node_outputs"]["planner"] = {
+                    "status": "complete",
+                    "timestamp": datetime.now().isoformat(),
+                    "output": "Research plan created.",
+                    "details": {
+                        "phases": len(plan_result["research_plan"].get("research_phases", [])),
+                        "timeline": plan_result["research_plan"].get("timeline", {}).get("total_duration", "Unknown")
+                    }
+                }
+            else:
+                raise ValueError(plan_result.get("error", "Unknown error"))
+                
+        except Exception as e:
+            state["error_message"] = f"Planner error: {str(e)}"
+            state["node_outputs"]["planner"] = {
+                "status": "error",
+                "timestamp": datetime.now().isoformat(),
+                "output": f"Error: {str(e)}",
+                "details": {}
+            }
+        
+        return state
+    
+    async def _novelty_check_node(self, state: WorkflowState) -> WorkflowState:
+        """Check hypothesis novelty."""
+        state["current_phase"] = "novelty_check"
+        
+        try:
+            hypothesis = state.get("hypothesis")
+            if not hypothesis:
+                raise ValueError("Hypothesis not found")
+            
+            expanded = state.get("expanded_hypothesis")
+            
+            novelty_checker = NoveltyCheckerAgent()
+            novelty_result = novelty_checker.check_novelty(hypothesis, expanded)
+            
+            if novelty_result["success"]:
+                state["novelty_assessment"] = novelty_result["novelty_assessment"]
+                
+                state["node_outputs"]["novelty_check"] = {
+                    "status": "complete",
+                    "timestamp": datetime.now().isoformat(),
+                    "output": f"Novelty assessed. Score: {novelty_result['novelty_assessment'].get('novelty_score', 0)}/10",
+                    "details": {
+                        "novelty_score": novelty_result["novelty_assessment"].get("novelty_score", 0),
+                        "similar_papers_found": len(novelty_result["novelty_assessment"].get("similar_papers", []))
+                    }
+                }
+            else:
+                raise ValueError(novelty_result.get("error", "Unknown error"))
+                
+        except Exception as e:
+            state["error_message"] = f"Novelty check error: {str(e)}"
+            state["node_outputs"]["novelty_check"] = {
+                "status": "error",
+                "timestamp": datetime.now().isoformat(),
+                "output": f"Error: {str(e)}",
+                "details": {}
+            }
+        
+        return state
+    
+    async def run(self, query: str, thread_id: str = "default", workflow_mode: Literal["structured", "automated"] = "structured") -> WorkflowState:
+        initial_state = create_initial_state(
+            session_id=thread_id, 
+            team_config=self.team_config,
+            workflow_mode=workflow_mode
+        )
         initial_state["messages"] = [HumanMessage(content=query)]
         
         config = {"configurable": {"thread_id": thread_id}}
         return await self.compiled_graph.ainvoke(initial_state, config)
     
-    def run_sync(self, query: str, thread_id: str = "default") -> WorkflowState:
+    def run_sync(self, query: str, thread_id: str = "default", workflow_mode: Literal["structured", "automated"] = "structured") -> WorkflowState:
         import asyncio
         try:
-            loop = asyncio.get_event_loop()
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
             if loop.is_running():
+                # We are in a running loop (e.g. inside another async function called synchronously?)
+                # This is tricky. Ideally we shouldn't be here.
+                # But if we are, we can't use asyncio.run.
+                # We might need to use a thread pool.
                 import concurrent.futures
                 with concurrent.futures.ThreadPoolExecutor() as pool:
-                    future = pool.submit(asyncio.run, self.run(query, thread_id))
+                    future = pool.submit(asyncio.run, self.run(query, thread_id, workflow_mode))
                     return future.result()
             else:
-                return loop.run_until_complete(self.run(query, thread_id))
-        except RuntimeError:
-            return asyncio.run(self.run(query, thread_id))
+                return loop.run_until_complete(self.run(query, thread_id, workflow_mode))
+        except Exception as e:
+            # Fallback for any other asyncio weirdness
+            logger.error(f"Asyncio error in run_sync: {e}")
+            return asyncio.run(self.run(query, thread_id, workflow_mode))
 
 
 def create_research_graph(team_config: TeamConfiguration) -> ResearchGraph:

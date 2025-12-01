@@ -68,6 +68,10 @@ class SemanticScholarTool:
             params["fieldsOfStudy"] = ",".join(fields_of_study)
         
         # Execute search
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.debug(f"SEMANTIC SCHOLAR REQUEST: {self.BASE_URL}/paper/search params={params}")
+        
         response = self._client.get(
             f"{self.BASE_URL}/paper/search",
             params=params
@@ -75,6 +79,7 @@ class SemanticScholarTool:
         response.raise_for_status()
         
         data = response.json()
+        logger.info(f"SEMANTIC SCHOLAR: Found {len(data.get('data', []))} papers")
         papers = []
         
         for item in data.get("data", []):
@@ -93,18 +98,24 @@ class SemanticScholarTool:
             if item.get("year"):
                 pub_date = datetime(item["year"], 1, 1)
             
+            # Determine source/venue
+            venue = item.get("venue", "")
+            if not venue:
+                venue = "Semantic Scholar"
+            
             paper = Paper(
                 id=item.get("paperId", ""),
                 title=item.get("title", ""),
                 authors=authors,
                 abstract=item.get("abstract", "") or "",
                 url=item.get("url", "") or f"https://www.semanticscholar.org/paper/{item.get('paperId', '')}",
-                source="semantic_scholar",
+                source=venue,
                 published_date=pub_date,
                 citations=item.get("citationCount", 0) or 0,
                 field=field
             )
             papers.append(paper)
+            logger.info(f"  - Found: {paper.title} ({paper.url})")
         
         return papers
     

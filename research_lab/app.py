@@ -12,6 +12,10 @@ load_dotenv()
 from ui.pages.home import render_home_page
 from ui.pages.team_setup import render_team_setup_page
 from ui.pages.research_session import render_research_session_page
+from config.logging_config import setup_logging
+
+# Initialize logging
+setup_logging()
 
 
 def inject_custom_css():
